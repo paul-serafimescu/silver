@@ -1,3 +1,14 @@
+/// TODO:
+/// INSERT mode
+/// find alternative to truncation on overflowing lines (no, it's not OK to assume I use good practice)
+/// maybe adding a boolean to control single line right/left scrolling?
+/// better status bar (and maybe status bar rendering)
+/// - current line number out of total line numbers
+/// - styling (different color?)
+/// - percent of file seems stupid I do not know why ViM does it
+/// more useful keybindings
+/// syntax highlighting? (make python look intentionally awful)
+
 use std::io::{stdout, Write};
 use crossterm::{
   terminal::{
@@ -15,18 +26,28 @@ use crossterm::{
   cursor::{
     MoveTo, Hide, Show,
     SavePosition, RestorePosition,
-    position
+    position, SetCursorShape, CursorShape
   }, execute,
 };
 use super::file::{Document, Row};
 
 const NONE: KeyModifiers = KeyModifiers::empty();
+const UPPER: KeyModifiers = KeyModifiers::SHIFT;
 
 macro_rules! char_key {
-  ($key: expr) => {
+  ($key: pat) => {
     Event::Key(KeyEvent {
       code: KeyCode::Char($key),
       modifiers: NONE
+    })
+  };
+}
+
+macro_rules! char_upper_key {
+  ($key: pat) => {
+    Event::Key(KeyEvent {
+      code: KeyCode::Char($key),
+      modifiers: UPPER
     })
   };
 }
@@ -62,6 +83,12 @@ impl Terminal {
 
   pub fn size(&self) -> (u16, u16) {
     (self.width, self.height)
+  }
+
+  pub fn set_dimensions(&mut self) {
+    let (width, height) = size().unwrap();
+    self.width = width;
+    self.height = height
   }
 
   #[allow(dead_code)]
@@ -183,10 +210,16 @@ impl Editor {
   }
 
   pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    // anything that needs to be done on boot
+    execute!(
+      stdout(),
+      SetCursorShape(CursorShape::Block)
+    )?;
     loop {
       if self._quit {
         return Ok(())
       }
+      self.terminal.set_dimensions();
       self.render();
       match &self.mode {
         EditorMode::Normal => self.handle_normal(),
@@ -200,7 +233,9 @@ impl Editor {
   }
 
   fn write_row(&self, row_no: usize, offset: usize, row: &Row) {
-    print!("{:indent$}{} {}\r\n", "", row_no, row.content(), indent=offset)
+    let mut printed_string = String::from(row.content());
+    printed_string.truncate((self.terminal.width - self.buffer - 1) as usize);
+    print!("{:indent$}{} {}\r\n", "", row_no, printed_string, indent=offset)
   }
 
   fn write_empty_line(&self) {
@@ -210,8 +245,11 @@ impl Editor {
 
   fn handle_command(&mut self) {
     match read().unwrap() {
-      char_key!('q') => {
-        self.status_bar.add_command('q');
+      char_key!(key) => {
+        self.status_bar.add_command(key);
+      },
+      char_upper_key!(key) => {
+        self.status_bar.add_command(key)
       },
       special_key!(KeyCode::Enter) => {
         self.evaluate_expr();
@@ -230,6 +268,10 @@ impl Editor {
     match read().unwrap() {
       special_key!(KeyCode::Esc) => {
         self.mode = EditorMode::Normal;
+        let _ = execute!(
+          stdout(),
+          SetCursorShape(CursorShape::Block)
+        );
         self.status_bar.set_mode(EditorMode::Normal)
       },
       _ => () // TODO: all the insert operations, refreshing the buffer
@@ -240,6 +282,10 @@ impl Editor {
     match read().unwrap() {
       char_key!('i') => {
         self.mode = EditorMode::Insert;
+        let _ = execute!(
+          stdout(),
+          SetCursorShape(CursorShape::Line)
+        );
         self.status_bar.set_mode(EditorMode::Insert)
       },
       char_key!(':') => {
@@ -248,10 +294,10 @@ impl Editor {
         self.status_bar.add_command(':');
       },
       special_key!(KeyCode::Down) => {
-        self.scroll(Direction::Down);
+        self.scroll(Direction::Down)
       },
       special_key!(KeyCode::Up) => {
-        self.scroll(Direction::Up);
+        self.scroll(Direction::Up)
       },
       special_key!(KeyCode::Left) => {
         self.scroll(Direction::Left)
@@ -264,12 +310,17 @@ impl Editor {
   }
 
   fn evaluate_expr(&mut self) {
-    for cmd in self.status_bar.cmd.chars() {
+    let mut commands = self.status_bar.cmd.chars().rev().collect::<String>();
+    while let Some(cmd) = commands.pop() {
       match cmd {
         'q' => self._quit = true,
+        'g' => self.move_to_beginning(),
+        'G' => self.move_to_end(),
         _ => ()
       }
     }
+    self.status_bar.cmd.clear();
+    self.status_bar.cmd_chars = 0;
   }
 
   fn scroll(&mut self, direction: Direction) {
@@ -279,22 +330,41 @@ impl Editor {
     );
     match direction {
       Direction::Down => {
-        if self.view_frame.1 - 2 < self.file.as_ref().unwrap().rows.len() as usize
+        let file = self.file.as_ref().unwrap();
+        // ensure that we are within the bounds of the file,
+        // add one null line to allow buffer to grow
+        if self.view_frame.1 - 2 < file.rows.len() as usize
         || self.position.0 + 2 != self.terminal.height {
-          if self.position.0 == self.terminal.size().1 - 2 {
-            self.view_frame = (self.view_frame.0 + 1, self.view_frame.1 + 1);
-          } else {
-            self.position.0 += 1;
+          // grab row below the current cursor row
+          if let Ok(row) = file.get_row(self.position.0 as usize + self.view_frame.0 + 1) {
+            // 'next_column' ensures stickiness to the left
+            let next_column = std::cmp::min(self.position.1, 1 + self.buffer + row.len() as u16);
+            // we're at the bottom of the view frame, scroll one line down, move everything else
+            if self.position.0 == self.terminal.size().1 - 2 {
+              self.view_frame = (self.view_frame.0 + 1, self.view_frame.1 + 1);
+              self.position = (self.position.0, next_column);
+            } else { // stick left, move cursor left depending on the character length of the next line
+              self.position = (self.position.0 + 1, next_column);
+            }
             let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
           }
         }
       },
       Direction::Up => {
+        // ensure we are not at the top of the file
         if self.view_frame.0 != 0 || self.position.0 != 0 {
-          if self.position.0 == 0 {
-            self.view_frame = (self.view_frame.0 - 1, self.view_frame.1 - 1);
-          } else {
-            self.position.0 -= 1;
+          let file = self.file.as_ref().unwrap();
+          // get the row above current cursor
+          if let Ok(row) = file.get_row(self.position.0 as usize + self.view_frame.0 - 1) {
+            // 'next_column' yet again ensures stickiness to the left
+            let next_column = std::cmp::min(self.position.1, 1 + self.buffer + row.len() as u16);
+            // at the top of the view frame, scroll one line up
+            if self.position.0 == 0 {
+              self.view_frame = (self.view_frame.0 - 1, self.view_frame.1 - 1);
+              self.position = (self.position.0, next_column);
+            } else { // stick left, move cursor left depending on the character length of the next line
+              self.position = (self.position.0 - 1, next_column);
+            }
             let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
           }
         }
@@ -318,6 +388,18 @@ impl Editor {
           let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
         }
       }
+    }
+  }
+
+  fn move_to_beginning(&mut self) {
+    for _ in 0..self.file.as_ref().unwrap().len() {
+      self.scroll(Direction::Up)
+    }
+  }
+
+  fn move_to_end(&mut self) {
+    for _ in self.view_frame.0..self.file.as_ref().unwrap().len() {
+      self.scroll(Direction::Down)
     }
   }
 
@@ -375,8 +457,9 @@ impl Drop for Editor {
     let _ = disable_raw_mode();
     let _ = execute!(
       stdout(),
-      LeaveAlternateScreen
+      SetCursorShape(CursorShape::Block),
+      LeaveAlternateScreen,
     );
-    println!("row {} column {}", self.position.0, self.position.1);
+    // println!("row {} column {}", self.position.0, self.position.1);
   }
 }

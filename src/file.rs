@@ -55,4 +55,8 @@ impl Document {
       Err(())
     }
   }
+
+  pub fn len(&self) -> usize {
+    self.rows.len()
+  }
 }
