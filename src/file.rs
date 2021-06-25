@@ -47,4 +47,12 @@ impl Document {
       rows
     })
   }
+
+  pub fn get_row(&self, index: usize) -> Result<&Row, ()> {
+    if let Some(row) = self.rows.get(index) {
+      Ok(row)
+    } else {
+      Err(())
+    }
+  }
 }

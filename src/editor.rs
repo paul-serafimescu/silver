@@ -14,6 +14,8 @@ use crossterm::{
   },
   cursor::{
     MoveTo, Hide, Show,
+    SavePosition, RestorePosition,
+    position
   }, execute,
 };
 use super::file::{Document, Row};
@@ -71,16 +73,6 @@ impl Terminal {
   }
 }
 
-impl Drop for Terminal {
-  fn drop(&mut self) {
-    let _ = disable_raw_mode();
-    let _ = execute!(
-      stdout(),
-      LeaveAlternateScreen
-    );
-  }
-}
-
 #[derive(Debug)]
 pub enum EditorMode {
   Normal,
@@ -102,6 +94,8 @@ impl EditorMode {
 pub enum Direction {
   Down,
   Up,
+  Left,
+  Right
 }
 
 #[derive(Debug)]
@@ -152,7 +146,9 @@ pub struct Editor {
   pub mode: EditorMode,
   pub status_bar: StatusBar,
   view_frame: (usize, usize),
-  _quit: bool
+  _quit: bool,
+  position: (u16, u16),
+  buffer: u16
 }
 
 impl Editor {
@@ -165,7 +161,9 @@ impl Editor {
       _quit: false,
       mode: EditorMode::Normal,
       status_bar: StatusBar::default(),
-      view_frame: (0, terminal_rows as usize)
+      view_frame: (0, terminal_rows as usize),
+      position: (0, 0),
+      buffer: 0
     })
   }
 
@@ -178,7 +176,9 @@ impl Editor {
       _quit: false,
       mode: EditorMode::Normal,
       status_bar: StatusBar::default(),
-      view_frame: (0, terminal_rows as usize)
+      view_frame: (0, terminal_rows as usize),
+      position: (0, 0),
+      buffer: 0
     })
   }
 
@@ -193,8 +193,9 @@ impl Editor {
         EditorMode::Command => self.handle_command(),
         EditorMode::Insert => self.handle_insert()
       }
-      self.status_bar.render();
-      stdout().flush()?;
+      // apparently i'm handling all the main stuff too fast for my terminal
+      // the source of the flickering needs to be resolved ASAP
+      std::thread::sleep(std::time::Duration::from_millis(1));
     }
   }
 
@@ -203,6 +204,7 @@ impl Editor {
   }
 
   fn write_empty_line(&self) {
+    self.clear_row();
     print!("~\r\n")
   }
 
@@ -251,6 +253,12 @@ impl Editor {
       special_key!(KeyCode::Up) => {
         self.scroll(Direction::Up);
       },
+      special_key!(KeyCode::Left) => {
+        self.scroll(Direction::Left)
+      },
+      special_key!(KeyCode::Right) => {
+        self.scroll(Direction::Right)
+      }
       _ => ()
     }
   }
@@ -265,15 +273,49 @@ impl Editor {
   }
 
   fn scroll(&mut self, direction: Direction) {
+    let _ = execute!(
+      stdout(),
+      Hide
+    );
     match direction {
       Direction::Down => {
-        if self.view_frame.1 - 2 != self.file.as_ref().unwrap().rows.len() as usize {
-          self.view_frame = (self.view_frame.0 + 1, self.view_frame.1 + 1);
+        if self.view_frame.1 - 2 < self.file.as_ref().unwrap().rows.len() as usize
+        || self.position.0 + 2 != self.terminal.height {
+          if self.position.0 == self.terminal.size().1 - 2 {
+            self.view_frame = (self.view_frame.0 + 1, self.view_frame.1 + 1);
+          } else {
+            self.position.0 += 1;
+            let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
+          }
         }
       },
       Direction::Up => {
-        if self.view_frame.0 != 0 {
-          self.view_frame = (self.view_frame.0 - 1, self.view_frame.1 - 1);
+        if self.view_frame.0 != 0 || self.position.0 != 0 {
+          if self.position.0 == 0 {
+            self.view_frame = (self.view_frame.0 - 1, self.view_frame.1 - 1);
+          } else {
+            self.position.0 -= 1;
+            let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
+          }
+        }
+      },
+      Direction::Left => {
+        if self.position.1 > self.buffer + 1 {
+          self.position.1 -= 1;
+          let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
+        }
+      },
+      Direction::Right => {
+        if self.position.1 != self.terminal.width {
+          if let Ok(row) = self.file.as_ref().unwrap().get_row(self.view_frame.0 + self.position.0 as usize) {
+            if row.len() + 3 == self.position.1 as usize {
+              self.scroll(Direction::Down);
+              self.position.1 = self.buffer + 1;
+            } else {
+              self.position.1 += 1;
+            }
+          }
+          let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
         }
       }
     }
@@ -286,19 +328,21 @@ impl Editor {
     );
   }
 
-  fn render(&self) {
+  fn render(&mut self) {
     let _ = execute!(
       stdout(),
       Hide,
+      SavePosition,
       MoveTo(0, 0),
     );
     if let Some(contents) = &self.file {
       let num_rows = contents.rows.len();
       let buffer = num_rows.to_string().chars().count();
+      self.buffer = buffer as u16;
       for terminal_row_no in self.view_frame.0..(self.view_frame.1 - 1) {
         if terminal_row_no < num_rows {
-          let used = buffer - (terminal_row_no + 1).to_string().chars().count();
           self.clear_row();
+          let used = buffer - (terminal_row_no + 1).to_string().chars().count();
           self.write_row(terminal_row_no + 1, used, contents.rows.get(terminal_row_no).unwrap());
         } else {
           self.write_empty_line();
@@ -307,14 +351,32 @@ impl Editor {
     } else {
 
     }
+    self.status_bar.render();
     match self.mode {
-      EditorMode::Command => {
-        let _ = stdout().flush();
-      },
+      EditorMode::Command => (),
       _ => {
-        let _ = execute!(stdout(), Show);
-        let _ = stdout().flush();
+        let _ = execute!(stdout(), RestorePosition, Show);
+        let (column, row) = position().unwrap();
+        if column == 0 {
+          self.position.1 = self.buffer + 1;
+          let _ = execute!(
+            stdout(),
+            MoveTo(self.position.1, row)
+          );
+        }
       }
     }
+    let _ = stdout().flush();
+  }
+}
+
+impl Drop for Editor {
+  fn drop(&mut self) {
+    let _ = disable_raw_mode();
+    let _ = execute!(
+      stdout(),
+      LeaveAlternateScreen
+    );
+    println!("row {} column {}", self.position.0, self.position.1);
   }
 }
