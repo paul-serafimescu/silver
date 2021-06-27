@@ -35,7 +35,11 @@ use crossterm::{
     EnableBlinking
   }, execute,
 };
-use super::file::{Document, Row};
+use super::file::{
+  Document, Row,
+  NLPositionDescriptor, DPositionDescriptor,
+  IPositionDescriptor
+};
 
 const NONE: KeyModifiers = KeyModifiers::empty();
 const UPPER: KeyModifiers = KeyModifiers::SHIFT;
@@ -285,6 +289,7 @@ impl Editor {
     match read().unwrap() {
       char_key!(key) | char_upper_key!(key) => self.insert(key),
       special_key!(KeyCode::Backspace) => self.delete(),
+      special_key!(KeyCode::Enter) => self.insert_row(),
       special_key!(KeyCode::Esc) => {
         self.mode = EditorMode::Normal;
         let _ = execute!(
@@ -464,16 +469,53 @@ impl Editor {
     let line = self.view_frame.0 + self.position.0 as usize;
     let column = self.position.1 - self.buffer - 1;
     let file = self.get_file_mut().unwrap();
-    file.get_row_mut(line).unwrap().insert(column as usize, key);
+    let row = file.get_row_mut(line).unwrap();
+    row.insert(if column as usize == row.len() {
+      IPositionDescriptor::End(key)
+    } else {
+      IPositionDescriptor::Middle(column as usize, key)
+    });
     self.scroll(Direction::Right)
   }
 
   fn delete(&mut self) {
     let line = self.view_frame.0 + self.position.0 as usize;
     let column = self.position.1 - self.buffer - 2;
+    let row_length = self.file.as_ref().unwrap().rows.get(line).unwrap().len();
     let file = self.get_file_mut().unwrap();
-    file.get_row_mut(line).unwrap().delete(column as usize);
+    file.handle_delete(if column == u16::MAX {
+      DPositionDescriptor::Beginning(line)
+    } else if column as usize == row_length {
+      DPositionDescriptor::End(line)
+    } else {
+      DPositionDescriptor::Middle(line, column as usize)
+    });
     self.scroll(Direction::Left)
+  }
+
+  fn insert_row(&mut self) {
+    let line = self.view_frame.0 + self.position.0 as usize;
+    let column = self.position.1 - self.buffer - 2;
+    let file = self.get_file_mut().unwrap();
+    let row = file.get_row_mut(line).unwrap();
+    let new_row = row.add_new_line(if column as usize == row.len() {
+      NLPositionDescriptor::End
+    } else if column == u16::MAX {
+      NLPositionDescriptor::Beginning
+    } else {
+      NLPositionDescriptor::Middle(column as usize)
+    });
+    file.insert_row(line + 1, new_row);
+    self.scroll(Direction::Down);
+    self.move_to_line_start()
+  }
+
+  fn move_to_line_start(&mut self) {
+    self.position = (self.position.0, self.buffer + 1);
+    let _ = execute!(
+      stdout(),
+      MoveTo(self.position.1, self.position.0)
+    );
   }
 
   fn render(&mut self) {
@@ -532,6 +574,7 @@ impl Drop for Editor {
       SetCursorShape(CursorShape::Block),
       LeaveAlternateScreen,
     );
+    println!("{}", self.file.as_ref().unwrap().to_str())
     // println!("row {} column {}", self.position.0, self.position.1);
   }
 }
