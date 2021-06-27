@@ -153,6 +153,24 @@ impl Document {
     })
   }
 
+  pub fn new(file_name: &str) -> Self {
+    let file_name = String::from(file_name);
+    let mut rows = Vec::new();
+    rows.push(Row::from(""));
+    Self {
+      file_name,
+      rows
+    }
+  }
+
+  pub fn name(&self) -> &str {
+    &self.file_name
+  }
+
+  pub fn set_name(&mut self, name: &str) {
+    self.file_name = String::from(name)
+  }
+
   pub fn get_row(&self, index: usize) -> Result<&Row, ()> {
     if let Some(row) = self.rows.get(index) {
       Ok(row)

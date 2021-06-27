@@ -1,5 +1,5 @@
 /// TODO:
-/// INSERT mode
+/// INSERT mode [DONE (i think)]
 /// find alternative to truncation on overflowing lines (no, it's not OK to assume I use good practice)
 /// maybe adding a boolean to control single line right/left scrolling?
 /// better status bar (and maybe status bar rendering)
@@ -189,7 +189,7 @@ impl StatusBar {
 #[derive(Debug)]
 pub struct Editor {
   pub terminal: Terminal,
-  pub file: Option<Document>,
+  pub file: Document,
   pub mode: EditorMode,
   pub status_bar: StatusBar,
   view_frame: (usize, usize),
@@ -199,27 +199,18 @@ pub struct Editor {
 }
 
 impl Editor {
-  pub fn default() -> Result<Self, std::io::Error> {
+  pub fn new(file_name: Option<&String>) -> Result<Self, std::io::Error> {
     let terminal = Terminal::new()?;
     let terminal_rows = terminal.size().1;
     Ok(Editor {
       terminal,
-      file: None,
-      _quit: false,
-      mode: EditorMode::Normal,
-      status_bar: StatusBar::default(),
-      view_frame: (0, terminal_rows as usize),
-      position: (0, 0),
-      buffer: 0
-    })
-  }
-
-  pub fn new(file_name: &str) -> Result<Self, std::io::Error> {
-    let terminal = Terminal::new()?;
-    let terminal_rows = terminal.size().1;
-    Ok(Editor {
-      terminal,
-      file: Some(Document::open(file_name)?),
+      file: if let Some(file_name) = file_name {
+        if let Ok(file) = Document::open(file_name) {
+          file
+        } else {
+          Document::new(file_name)
+        }
+      } else { Document::new("") },
       _quit: false,
       mode: EditorMode::Normal,
       status_bar: StatusBar::default(),
@@ -264,6 +255,15 @@ impl Editor {
     print!("~\r\n")
   }
 
+  fn move_to(&mut self, column: u16, row: u16) {
+    execute!(
+      stdout(),
+      MoveTo(column, row)
+    ).unwrap();
+    self.position.0 = row;
+    self.position.1 = column
+  }
+
   fn handle_command(&mut self) {
     match read().unwrap() {
       char_key!(key) => {
@@ -273,9 +273,10 @@ impl Editor {
         self.status_bar.add_command(key)
       },
       special_key!(KeyCode::Enter) => {
+        self.move_to(self.position.1, self.position.0);
         self.evaluate_expr();
         self.mode = EditorMode::Normal;
-        self.status_bar.set_mode(EditorMode::Normal)
+        self.status_bar.set_mode(EditorMode::Normal);
       },
       special_key!(KeyCode::Esc) => {
         self.mode = EditorMode::Normal;
@@ -346,13 +347,31 @@ impl Editor {
   }
 
   fn evaluate_expr(&mut self) {
-    let mut commands = self.status_bar.cmd.chars().rev().collect::<String>();
-    while let Some(cmd) = commands.pop() {
-      match cmd {
-        'q' => self._quit = true,
-        'g' => self.move_to_beginning(),
-        'G' => self.move_to_end(),
+    if self.status_bar.cmd.starts_with(":set") {
+      let copied_cmd = self.status_bar.cmd
+      .clone();
+    let split_command = copied_cmd.split_whitespace().collect::<Vec<&str>>();
+    for idx in 1..split_command.len() {
+      match *split_command.get(idx).unwrap() {
+        ":set" => (),
+        "filename" => {
+          if let Some(file_name) = split_command.get(idx + 1) {
+            self.file.set_name(*file_name)
+          }
+          break
+        },
         _ => ()
+      }
+    }
+    } else {
+      let mut commands = self.status_bar.cmd.chars().rev().collect::<String>();
+      while let Some(cmd) = commands.pop() {
+        match cmd {
+          'q' => if self.file.name() != "" { self._quit = true },
+          'g' => self.move_to_beginning(),
+          'G' => self.move_to_end(),
+          _ => ()
+        }
       }
     }
     self.status_bar.cmd.clear();
@@ -366,7 +385,7 @@ impl Editor {
     );
     match direction {
       Direction::Down => {
-        let file = self.file.as_ref().unwrap();
+        let file = &self.file;
         // ensure that we are within the bounds of the file,
         // add one null line to allow buffer to grow
         if self.view_frame.1 - 2 < file.rows.len() as usize
@@ -389,7 +408,7 @@ impl Editor {
       Direction::Up => {
         // ensure we are not at the top of the file
         if self.view_frame.0 != 0 || self.position.0 != 0 {
-          let file = self.file.as_ref().unwrap();
+          let file = &self.file;
           // get the row above current cursor
           if let Ok(row) = file.get_row(self.position.0 as usize + self.view_frame.0 - 1) {
             // 'next_column' yet again ensures stickiness to the left
@@ -411,8 +430,6 @@ impl Editor {
             self.scroll(Direction::Up);
             if self.position.0 != 0 || self.view_frame.0 != 0 {
               if let Ok(row) = self.file
-                .as_ref()
-                .unwrap()
                 .get_row(self.view_frame.0 + self.position.0 as usize) {
                   self.position.1 = std::cmp::min(self.terminal.width, self.buffer + 1 + row.len() as u16)
               }
@@ -426,8 +443,6 @@ impl Editor {
       Direction::Right => {
         if self.position.1 != self.terminal.width {
           if let Ok(row) = self.file
-            .as_ref()
-            .unwrap()
             .get_row(self.view_frame.0 + self.position.0 as usize) {
               if row.len() + self.buffer as usize + 1 == self.position.1 as usize || row.len() == 0 {
                 self.scroll(Direction::Down);
@@ -443,13 +458,13 @@ impl Editor {
   }
 
   fn move_to_beginning(&mut self) {
-    for _ in 0..self.file.as_ref().unwrap().len() {
+    for _ in 0..self.file.len() {
       self.scroll(Direction::Up)
     }
   }
 
   fn move_to_end(&mut self) {
-    for _ in self.view_frame.0..self.file.as_ref().unwrap().len() {
+    for _ in self.view_frame.0..self.file.len() {
       self.scroll(Direction::Down)
     }
   }
@@ -461,14 +476,14 @@ impl Editor {
     );
   }
 
-  fn get_file_mut(&mut self) -> Option<&mut Document> {
-    self.file.as_mut()
+  fn get_file_mut(&mut self) -> &mut Document {
+    &mut self.file
   }
 
   fn insert(&mut self, key: char) {
     let line = self.view_frame.0 + self.position.0 as usize;
     let column = self.position.1 - self.buffer - 1;
-    let file = self.get_file_mut().unwrap();
+    let file = self.get_file_mut();
     let row = file.get_row_mut(line).unwrap();
     row.insert(if column as usize == row.len() {
       IPositionDescriptor::End(key)
@@ -481,8 +496,8 @@ impl Editor {
   fn delete(&mut self) {
     let line = self.view_frame.0 + self.position.0 as usize;
     let column = self.position.1 - self.buffer - 2;
-    let row_length = self.file.as_ref().unwrap().rows.get(line).unwrap().len();
-    let file = self.get_file_mut().unwrap();
+    let row_length = self.file.rows.get(line).unwrap().len();
+    let file = self.get_file_mut();
     file.handle_delete(if column == u16::MAX {
       DPositionDescriptor::Beginning(line)
     } else if column as usize == row_length {
@@ -496,7 +511,7 @@ impl Editor {
   fn insert_row(&mut self) {
     let line = self.view_frame.0 + self.position.0 as usize;
     let column = self.position.1 - self.buffer - 2;
-    let file = self.get_file_mut().unwrap();
+    let file = self.get_file_mut();
     let row = file.get_row_mut(line).unwrap();
     let new_row = row.add_new_line(if column as usize == row.len() {
       NLPositionDescriptor::End
@@ -525,23 +540,19 @@ impl Editor {
       SavePosition,
       MoveTo(0, 0),
     );
-    if let Some(contents) = &self.file {
-      let num_rows = contents.rows.len();
-      let buffer = num_rows.to_string().chars().count();
-      self.buffer = buffer as u16;
-      for terminal_row_no in self.view_frame.0..(self.view_frame.1 - 1) {
-        if terminal_row_no < num_rows {
-          self.clear_row();
-          let used = buffer - (terminal_row_no + 1).to_string().chars().count();
-          self.write_row(terminal_row_no + 1, used, contents.rows.get(terminal_row_no).unwrap());
-        } else {
-          self.write_empty_line();
-        }
+    let num_rows = self.file.rows.len();
+    let buffer = num_rows.to_string().chars().count();
+    self.buffer = buffer as u16;
+    for terminal_row_no in self.view_frame.0..(self.view_frame.1 - 1) {
+      if terminal_row_no < num_rows {
+        self.clear_row();
+        let used = buffer - (terminal_row_no + 1).to_string().chars().count();
+        self.write_row(terminal_row_no + 1, used, self.file.rows.get(terminal_row_no).unwrap());
+      } else {
+        self.write_empty_line();
       }
-    } else {
-
     }
-    self.status_bar.render(self.view_frame.0 + self.position.0 as usize + 1, self.file.as_ref().unwrap().len());
+    self.status_bar.render(self.view_frame.0 + self.position.0 as usize + 1, self.file.len());
     match self.mode {
       EditorMode::Command => (),
       _ => {
@@ -564,17 +575,15 @@ impl Drop for Editor {
   fn drop(&mut self) {
     let _ = disable_raw_mode();
     let _ = self.terminal.clear();
-    if let Some(f) = self.file.as_ref() {
-      let _ = f.save();
-    } else {
-
+    if let Err(why) = self.file.save() {
+      eprintln!("{}", why)
     }
     let _ = execute!(
       stdout(),
       SetCursorShape(CursorShape::Block),
       LeaveAlternateScreen,
     );
-    println!("{}", self.file.as_ref().unwrap().to_str())
+    // println!("{}", self.file.as_ref().unwrap().to_str())
     // println!("row {} column {}", self.position.0, self.position.1);
   }
 }
