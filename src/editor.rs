@@ -3,7 +3,7 @@
 /// find alternative to truncation on overflowing lines (no, it's not OK to assume I use good practice)
 /// maybe adding a boolean to control single line right/left scrolling?
 /// better status bar (and maybe status bar rendering)
-/// - current line number out of total line numbers
+/// - current line number out of total line numbers [DONE]
 /// - styling (different color?)
 /// - percent of file seems stupid I do not know why ViM does it
 /// more useful keybindings
@@ -23,10 +23,16 @@ use crossterm::{
     read, KeyEvent,
     KeyModifiers,
   },
+  style::{
+    SetForegroundColor, SetBackgroundColor,
+    ResetColor,
+    Color,
+  },
   cursor::{
     MoveTo, Hide, Show,
     SavePosition, RestorePosition,
-    position, SetCursorShape, CursorShape
+    position, SetCursorShape, CursorShape,
+    EnableBlinking
   }, execute,
 };
 use super::file::{Document, Row};
@@ -91,7 +97,6 @@ impl Terminal {
     self.height = height
   }
 
-  #[allow(dead_code)]
   pub fn clear(&self) -> Result<(), std::io::Error> {
     Ok(execute!(
       stdout(),
@@ -140,29 +145,40 @@ impl StatusBar {
       terminal_size: dimensions,
       cmd: String::new(),
       cmd_chars: 0,
-      mode: EditorMode::Normal
+      mode: EditorMode::Normal,
     }
   }
 
   pub fn add_command(&mut self, command: char) {
     self.cmd_chars += 1;
     self.cmd.push(command);
-    self.render();
   }
 
   pub fn set_mode(&mut self, mode: EditorMode) {
     self.mode = mode
   }
 
-  pub fn render(&self) {
+  pub fn render(&self, current: usize, total: usize) {
     let mode_str = self.mode.to_string();
+    let line_chars = current.to_string().chars().count() + total.to_string().chars().count();
+    let mut stdout = stdout();
     let content = format!("{}{}{}",
       self.cmd,
-      (self.cmd_chars..(self.terminal_size.0 as usize - mode_str.len()))
+      (self.cmd_chars..(self.terminal_size.0 as usize - mode_str.len() - line_chars - 4))
         .map(|_| " ")
         .collect::<String>(),
       mode_str);
-    print!("{}\r", content);
+    print!("{} | ", content);
+    let _ = execute!(
+      stdout,
+      SetBackgroundColor(Color::White),
+      SetForegroundColor(Color::Black)
+    );
+    print!("{}/{}\r", current, total);
+    let _ = execute!(
+      stdout,
+      ResetColor
+    );
   }
 }
 
@@ -213,7 +229,8 @@ impl Editor {
     // anything that needs to be done on boot
     execute!(
       stdout(),
-      SetCursorShape(CursorShape::Block)
+      SetCursorShape(CursorShape::Block),
+      EnableBlinking
     )?;
     loop {
       if self._quit {
@@ -266,13 +283,27 @@ impl Editor {
 
   fn handle_insert(&mut self) {
     match read().unwrap() {
+      char_key!(key) | char_upper_key!(key) => self.insert(key),
+      special_key!(KeyCode::Backspace) => self.delete(),
       special_key!(KeyCode::Esc) => {
         self.mode = EditorMode::Normal;
         let _ = execute!(
           stdout(),
-          SetCursorShape(CursorShape::Block)
+          SetCursorShape(CursorShape::Block),
         );
         self.status_bar.set_mode(EditorMode::Normal)
+      },
+      special_key!(KeyCode::Down) => {
+        self.scroll(Direction::Down)
+      },
+      special_key!(KeyCode::Up) => {
+        self.scroll(Direction::Up)
+      },
+      special_key!(KeyCode::Left) => {
+        self.scroll(Direction::Left)
+      },
+      special_key!(KeyCode::Right) => {
+        self.scroll(Direction::Right)
       },
       _ => () // TODO: all the insert operations, refreshing the buffer
     }
@@ -370,20 +401,35 @@ impl Editor {
         }
       },
       Direction::Left => {
-        if self.position.1 > self.buffer + 1 {
-          self.position.1 -= 1;
+        if self.position.1 > self.buffer {
+          if self.position.1 == self.buffer + 1 {
+            self.scroll(Direction::Up);
+            if self.position.0 != 0 || self.view_frame.0 != 0 {
+              if let Ok(row) = self.file
+                .as_ref()
+                .unwrap()
+                .get_row(self.view_frame.0 + self.position.0 as usize) {
+                  self.position.1 = std::cmp::min(self.terminal.width, self.buffer + 1 + row.len() as u16)
+              }
+            }
+          } else {
+            self.position.1 -= 1
+          }
           let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
         }
       },
       Direction::Right => {
         if self.position.1 != self.terminal.width {
-          if let Ok(row) = self.file.as_ref().unwrap().get_row(self.view_frame.0 + self.position.0 as usize) {
-            if row.len() + 3 == self.position.1 as usize {
-              self.scroll(Direction::Down);
-              self.position.1 = self.buffer + 1;
-            } else {
-              self.position.1 += 1;
-            }
+          if let Ok(row) = self.file
+            .as_ref()
+            .unwrap()
+            .get_row(self.view_frame.0 + self.position.0 as usize) {
+              if row.len() + self.buffer as usize + 1 == self.position.1 as usize || row.len() == 0 {
+                self.scroll(Direction::Down);
+                self.position.1 = self.buffer + 1;
+              } else {
+                self.position.1 += 1;
+              }
           }
           let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
         }
@@ -410,6 +456,26 @@ impl Editor {
     );
   }
 
+  fn get_file_mut(&mut self) -> Option<&mut Document> {
+    self.file.as_mut()
+  }
+
+  fn insert(&mut self, key: char) {
+    let line = self.view_frame.0 + self.position.0 as usize;
+    let column = self.position.1 - self.buffer - 1;
+    let file = self.get_file_mut().unwrap();
+    file.get_row_mut(line).unwrap().insert(column as usize, key);
+    self.scroll(Direction::Right)
+  }
+
+  fn delete(&mut self) {
+    let line = self.view_frame.0 + self.position.0 as usize;
+    let column = self.position.1 - self.buffer - 2;
+    let file = self.get_file_mut().unwrap();
+    file.get_row_mut(line).unwrap().delete(column as usize);
+    self.scroll(Direction::Left)
+  }
+
   fn render(&mut self) {
     let _ = execute!(
       stdout(),
@@ -433,7 +499,7 @@ impl Editor {
     } else {
 
     }
-    self.status_bar.render();
+    self.status_bar.render(self.view_frame.0 + self.position.0 as usize + 1, self.file.as_ref().unwrap().len());
     match self.mode {
       EditorMode::Command => (),
       _ => {
@@ -455,6 +521,12 @@ impl Editor {
 impl Drop for Editor {
   fn drop(&mut self) {
     let _ = disable_raw_mode();
+    let _ = self.terminal.clear();
+    if let Some(f) = self.file.as_ref() {
+      let _ = f.save();
+    } else {
+
+    }
     let _ = execute!(
       stdout(),
       SetCursorShape(CursorShape::Block),

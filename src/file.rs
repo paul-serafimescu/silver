@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
-use std::fs::{read_to_string};
+use std::io::Write;
+use std::fs::{read_to_string, OpenOptions};
 use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug)]
@@ -16,6 +17,32 @@ impl Row {
 
   pub fn len(&self) -> usize {
     self.len
+  }
+
+  pub fn insert(&mut self, before: usize, character: char) {
+    let mut new = String::new();
+    for (idx, ch) in self.content.graphemes(true).enumerate() {
+      if idx == before {
+        new.push(character);
+        new.push_str(ch);
+        new.push_str(&self.content[(idx + 1)..self.content.len()]);
+        break
+      }
+      new.push_str(ch)
+    }
+    self.content = new;
+  }
+
+  pub fn delete(&mut self, at: usize) {
+    let mut new = String::new();
+    for (idx, ch) in self.content.graphemes(true).enumerate() {
+      if idx == at {
+        new.push_str(&self.content[(idx + 1)..self.content.len()]);
+        break
+      }
+      new.push_str(ch)
+    }
+    self.content = new;
   }
 }
 
@@ -56,7 +83,29 @@ impl Document {
     }
   }
 
+  pub fn get_row_mut(&mut self, index: usize) -> Result<&mut Row, ()> {
+    if let Some(row) = self.rows.get_mut(index) {
+      Ok(row)
+    } else {
+      Err(())
+    }
+  }
+
   pub fn len(&self) -> usize {
     self.rows.len()
+  }
+
+  fn to_str(&self) -> String {
+    let mut stringified = String::new();
+    for row in &self.rows {
+      stringified.push_str(row.content());
+      stringified.push('\n')
+    }
+    stringified
+  }
+
+  pub fn save(&self) -> Result<usize, std::io::Error> {
+    let mut file = OpenOptions::new().write(true).create(true).open(self.file_name.as_str())?;
+    file.write(self.to_str().as_bytes())
   }
 }
