@@ -1,5 +1,6 @@
 mod editor;
 mod file;
+mod highlighting;
 
 use editor::Editor;
 

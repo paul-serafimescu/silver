@@ -1,0 +1,14 @@
+{
+  "keywords": [
+    "for", "in", "use", "impl",
+    "struct", "pub", "if", "else",
+    "fn", "enum", "return", "loop", "while",
+    "crate"
+  ],
+  "colors": {
+    "keyword": "purple",
+    "string": "green",
+    "number": "yellow",
+    "function": "blue"
+  }
+}

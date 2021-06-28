@@ -40,9 +40,13 @@ use super::file::{
   NLPositionDescriptor, DPositionDescriptor,
   IPositionDescriptor
 };
+#[allow(unused_imports)]
+use super::highlighting;
 
 const NONE: KeyModifiers = KeyModifiers::empty();
 const UPPER: KeyModifiers = KeyModifiers::SHIFT;
+#[allow(dead_code)]
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 macro_rules! char_key {
   ($key: pat) => {
@@ -158,6 +162,11 @@ impl StatusBar {
     self.cmd.push(command);
   }
 
+  pub fn remove_command(&mut self) {
+    self.cmd_chars -= 1;
+    self.cmd.pop();
+  }
+
   pub fn set_mode(&mut self, mode: EditorMode) {
     self.mode = mode
   }
@@ -192,6 +201,7 @@ pub struct Editor {
   pub file: Document,
   pub mode: EditorMode,
   pub status_bar: StatusBar,
+  altered: bool,
   view_frame: (usize, usize),
   _quit: bool,
   position: (u16, u16),
@@ -204,6 +214,7 @@ impl Editor {
     let terminal_rows = terminal.size().1;
     Ok(Editor {
       terminal,
+      altered: false,
       file: if let Some(file_name) = file_name {
         if let Ok(file) = Document::open(file_name) {
           file
@@ -282,6 +293,11 @@ impl Editor {
         self.mode = EditorMode::Normal;
         self.status_bar.set_mode(EditorMode::Normal)
       },
+      special_key!(KeyCode::Backspace) => {
+        if self.status_bar.cmd.len() > 0 {
+          self.status_bar.remove_command()
+        }
+      }
       _ => ()
     }
   }
@@ -313,6 +329,7 @@ impl Editor {
       },
       _ => () // TODO: all the insert operations, refreshing the buffer
     }
+    self.altered = true;
   }
 
   fn handle_normal(&mut self) {
@@ -367,7 +384,7 @@ impl Editor {
       let mut commands = self.status_bar.cmd.chars().rev().collect::<String>();
       while let Some(cmd) = commands.pop() {
         match cmd {
-          'q' => if self.file.name() != "" { self._quit = true },
+          'q' => if self.file.name() != "" || !self.altered { self._quit = true },
           'g' => self.move_to_beginning(),
           'G' => self.move_to_end(),
           _ => ()
@@ -391,7 +408,7 @@ impl Editor {
         if self.view_frame.1 - 2 < file.rows.len() as usize
         || self.position.0 + 2 != self.terminal.height {
           // grab row below the current cursor row
-          if let Ok(row) = file.get_row(self.position.0 as usize + self.view_frame.0 + 1) {
+          if let Some(row) = file.get_row(self.position.0 as usize + self.view_frame.0 + 1) {
             // 'next_column' ensures stickiness to the left
             let next_column = std::cmp::min(self.position.1, 1 + self.buffer + row.len() as u16);
             // we're at the bottom of the view frame, scroll one line down, move everything else
@@ -401,7 +418,7 @@ impl Editor {
             } else { // stick left, move cursor left depending on the character length of the next line
               self.position = (self.position.0 + 1, next_column);
             }
-            let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
+            self.move_to(self.position.1, self.position.0)
           }
         }
       },
@@ -410,7 +427,7 @@ impl Editor {
         if self.view_frame.0 != 0 || self.position.0 != 0 {
           let file = &self.file;
           // get the row above current cursor
-          if let Ok(row) = file.get_row(self.position.0 as usize + self.view_frame.0 - 1) {
+          if let Some(row) = file.get_row(self.position.0 as usize + self.view_frame.0 - 1) {
             // 'next_column' yet again ensures stickiness to the left
             let next_column = std::cmp::min(self.position.1, 1 + self.buffer + row.len() as u16);
             // at the top of the view frame, scroll one line up
@@ -420,16 +437,16 @@ impl Editor {
             } else { // stick left, move cursor left depending on the character length of the next line
               self.position = (self.position.0 - 1, next_column);
             }
-            let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
+            self.move_to(self.position.1, self.position.0)
           }
         }
       },
       Direction::Left => {
         if self.position.1 > self.buffer {
           if self.position.1 == self.buffer + 1 {
-            self.scroll(Direction::Up);
             if self.position.0 != 0 || self.view_frame.0 != 0 {
-              if let Ok(row) = self.file
+              self.scroll(Direction::Up);
+              if let Some(row) = self.file
                 .get_row(self.view_frame.0 + self.position.0 as usize) {
                   self.position.1 = std::cmp::min(self.terminal.width, self.buffer + 1 + row.len() as u16)
               }
@@ -437,21 +454,24 @@ impl Editor {
           } else {
             self.position.1 -= 1
           }
-          let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
+          self.move_to(self.position.1, self.position.0)
         }
       },
       Direction::Right => {
         if self.position.1 != self.terminal.width {
-          if let Ok(row) = self.file
+          if let Some(row) = self.file
             .get_row(self.view_frame.0 + self.position.0 as usize) {
               if row.len() + self.buffer as usize + 1 == self.position.1 as usize || row.len() == 0 {
+                if self.view_frame.0 + self.position.0 as usize == self.file.len() - 1 {
+                  return
+                }
                 self.scroll(Direction::Down);
                 self.position.1 = self.buffer + 1;
               } else {
                 self.position.1 += 1;
               }
           }
-          let _ = execute!(stdout(), MoveTo(self.position.1, self.position.0));
+          self.move_to(self.position.1, self.position.0)
         }
       }
     }
@@ -498,14 +518,17 @@ impl Editor {
     let column = self.position.1 - self.buffer - 2;
     let row_length = self.file.rows.get(line).unwrap().len();
     let file = self.get_file_mut();
-    file.handle_delete(if column == u16::MAX {
+    if let Some(offset) = file.handle_delete(if column == u16::MAX {
       DPositionDescriptor::Beginning(line)
     } else if column as usize == row_length {
       DPositionDescriptor::End(line)
     } else {
       DPositionDescriptor::Middle(line, column as usize)
-    });
-    self.scroll(Direction::Left)
+    }) {
+      self.move_to(offset as u16 + self.buffer + 1, self.position.0 - 1)
+    } else {
+      self.scroll(Direction::Left)
+    }
   }
 
   fn insert_row(&mut self) {
@@ -526,11 +549,7 @@ impl Editor {
   }
 
   fn move_to_line_start(&mut self) {
-    self.position = (self.position.0, self.buffer + 1);
-    let _ = execute!(
-      stdout(),
-      MoveTo(self.position.1, self.position.0)
-    );
+    self.move_to(self.buffer + 1, self.position.0)
   }
 
   fn render(&mut self) {
@@ -583,7 +602,7 @@ impl Drop for Editor {
       SetCursorShape(CursorShape::Block),
       LeaveAlternateScreen,
     );
-    // println!("{}", self.file.as_ref().unwrap().to_str())
+    // println!("{:?}", self.file)
     // println!("row {} column {}", self.position.0, self.position.1);
   }
 }

@@ -84,6 +84,7 @@ impl Row {
           }
         }
         self.content = old;
+        self.len = self.content.graphemes(true).count();
         let len = new.graphemes(true).count();
         Row {
           content: new,
@@ -171,12 +172,8 @@ impl Document {
     self.file_name = String::from(name)
   }
 
-  pub fn get_row(&self, index: usize) -> Result<&Row, ()> {
-    if let Some(row) = self.rows.get(index) {
-      Ok(row)
-    } else {
-      Err(())
-    }
+  pub fn get_row(&self, index: usize) -> Option<&Row> {
+    self.rows.get(index)
   }
 
   pub fn get_row_mut(&mut self, index: usize) -> Result<&mut Row, ()> {
@@ -209,21 +206,25 @@ impl Document {
     self.rows.insert(row_no, row)
   }
 
-  pub fn handle_delete(&mut self, descrip: DPositionDescriptor) {
+  pub fn handle_delete(&mut self, descrip: DPositionDescriptor) -> Option<usize> {
     match descrip {
       DPositionDescriptor::Middle(row_no, at) => {
-        self.get_row_mut(row_no).unwrap().delete(at)
+        self.get_row_mut(row_no).unwrap().delete(at);
+        None
       },
       DPositionDescriptor::Beginning(row_no) => {
         if row_no == 0 {
-          return
+          return None
         }
         let row = self.rows.remove(row_no);
         let prev_row = self.rows.get_mut(row_no - 1).unwrap();
+        let prev_len = prev_row.len();
         prev_row.append(&row);
+        Some(prev_len)
       },
       DPositionDescriptor::End(row_no) => {
         self.get_row_mut(row_no).unwrap().pop();
+        None
       }
     }
   }
