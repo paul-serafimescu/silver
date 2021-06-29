@@ -3,6 +3,7 @@
 use std::io::Write;
 use std::fs::{read_to_string, OpenOptions};
 use unicode_segmentation::UnicodeSegmentation;
+use crate::highlighting::*;
 
 // newline position descriptor
 pub enum NLPositionDescriptor {
@@ -137,7 +138,8 @@ impl From<&str> for Row {
 #[derive(Debug)]
 pub struct Document {
   pub file_name: String,
-  pub rows: Vec<Row>
+  pub rows: Vec<Row>,
+  pub highlighted_rows: Option<Vec<Vec<Parsed>>>
 }
 
 impl Document {
@@ -148,9 +150,11 @@ impl Document {
     for line in raw_content.lines() {
       rows.push(Row::from(line));
     }
+    let highlighted_rows = highlight(&file_name, &rows);
     Ok(Self {
       file_name,
-      rows
+      rows,
+      highlighted_rows
     })
   }
 
@@ -158,14 +162,20 @@ impl Document {
     let file_name = String::from(file_name);
     let mut rows = Vec::new();
     rows.push(Row::from(""));
+    let highlighted_rows = highlight(&file_name, &rows);
     Self {
       file_name,
-      rows
+      rows,
+      highlighted_rows
     }
   }
 
   pub fn name(&self) -> &str {
     &self.file_name
+  }
+
+  pub fn highlighted_rows(&self) -> &Option<Vec<Vec<Parsed>>> {
+    &self.highlighted_rows
   }
 
   pub fn set_name(&mut self, name: &str) {
@@ -228,4 +238,15 @@ impl Document {
       }
     }
   }
+}
+
+// "static" helper functions
+
+fn highlight(file_name: &str, rows: &Vec<Row>) -> Option<Vec<Vec<Parsed>>> {
+  if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
+    match *extension {
+      "rs" => RustLexer::default().lex(&rows),
+      _ => None
+    }
+  } else { None }
 }

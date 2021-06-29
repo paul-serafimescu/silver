@@ -27,6 +27,7 @@ use crossterm::{
     SetForegroundColor, SetBackgroundColor,
     ResetColor,
     Color,
+    Print
   },
   cursor::{
     MoveTo, Hide, Show,
@@ -35,7 +36,7 @@ use crossterm::{
     EnableBlinking
   }, execute,
 };
-use super::file::{
+use crate::file::{
   Document, Row,
   NLPositionDescriptor, DPositionDescriptor,
   IPositionDescriptor
@@ -258,7 +259,39 @@ impl Editor {
   fn write_row(&self, row_no: usize, offset: usize, row: &Row) {
     let mut printed_string = String::from(row.content());
     printed_string.truncate((self.terminal.width - self.buffer - 1) as usize);
-    print!("{:indent$}{} {}\r\n", "", row_no, printed_string, indent=offset)
+    if let Some(highlighted_rows) = self.file.highlighted_rows() {
+      let mut stdout = stdout();
+      let mut token_index = 0;
+      let mut visited = 0;
+      let highlighted_row = highlighted_rows.get(row_no - 1).unwrap();
+      print!("{:indent$}{} ", "", row_no, indent=offset);
+      for (index, character) in printed_string.char_indices() {
+        if visited > index { continue }
+        if character.is_whitespace() {
+          print!("{}", character);
+          visited += 1;
+        } else {
+          if let Some(highlighted_token) = highlighted_row.get(token_index) {
+            token_index += 1;
+            visited += highlighted_token.get_original().len();
+            if visited >= (self.terminal.width - self.buffer - 1) as usize { break }
+            if let Some(color) = highlighted_token.get_color() {
+              execute!(
+                stdout,
+                SetForegroundColor(*color),
+                Print(highlighted_token.get_original()),
+                ResetColor
+              ).unwrap();
+            } else {
+              print!("{}", highlighted_token.get_original());
+            }
+          }
+        }
+      }
+      print!("\r\n")
+    } else {
+      print!("{:indent$}{} {}\r\n", "", row_no, printed_string, indent=offset)
+    }
   }
 
   fn write_empty_line(&self) {
@@ -602,6 +635,7 @@ impl Drop for Editor {
       SetCursorShape(CursorShape::Block),
       LeaveAlternateScreen,
     );
+    // println!("{:?}", self.file.highlighted_rows())
     // println!("{:?}", self.file)
     // println!("row {} column {}", self.position.0, self.position.1);
   }

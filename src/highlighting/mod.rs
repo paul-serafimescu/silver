@@ -1,18 +1,23 @@
 #![allow(dead_code)]
 mod rust;
 
+pub use json::JsonValue;
 pub use rust::RustLexer;
 pub use crossterm::style::Color;
-use super::file::Row;
+use crate::file::Row;
 
+#[derive(Debug)]
 pub enum Token {
-  String,
+  Str,
   Number,
-  Function,
+  Type,
+  Function, // I won't bother with this one for now
   Keyword,
-  None
+  Char,
+  Unknown
 }
 
+#[derive(Debug)]
 pub struct Parsed {
   original: String,
   parsed: Token,
@@ -27,9 +32,27 @@ impl Parsed {
   pub fn get_parsed(&self) -> &Token {
     &self.parsed
   }
+
+  pub fn get_color(&self) -> Option<&Color> {
+    self.color.as_ref()
+  }
 }
 
 pub trait Lexer {
-  fn lex(rows: &Vec<Row>) -> Vec<Vec<Parsed>>;
-  fn parse(token: &str) -> Parsed;
+  fn default() -> Self;
+  fn lex(&self, rows: &Vec<Row>) -> Option<Vec<Vec<Parsed>>>;
+  fn parse(token: &str, syntax_rules: &JsonValue) -> Parsed;
+}
+
+fn get_color(color_str: &str) -> Option<Color> {
+  match color_str {
+    "blue" => Some(Color::Blue),
+    "darkblue" => Some(Color::DarkBlue),
+    "red" => Some(Color::Red),
+    "purple" => Some(Color::Magenta),
+    "green" => Some(Color::Green),
+    "yellow" => Some(Color::Yellow),
+    "orange" => Some(Color::DarkYellow),
+    _ => None
+  }
 }
