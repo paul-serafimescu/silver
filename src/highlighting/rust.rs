@@ -9,6 +9,8 @@ use crate::highlighting::{
 };
 use logos::Logos;
 
+// TODO: add callbacks to macros, to mimic the behavior of look-ahead/look-behind regex assertions
+// these callbacks can probably do other stuff idk think about this more
 #[derive(Debug, Logos, PartialEq)]
 enum RustToken {
   #[regex("\"([^\"]*)\"")]
@@ -17,6 +19,7 @@ enum RustToken {
   #[regex("\'([^\"]*)\'")]
   Char,
 
+  // TODO: finish adding all the keywords
   #[regex("\\s?fn\\s")]
   #[regex("\\s?impl\\s")]
   #[regex("\\s?for\\s")]
@@ -35,6 +38,7 @@ enum RustToken {
   #[regex("\\s?continue(\\s?|;)")]
   Keyword,
 
+  // TODO: finish adding all the types
   #[token("u8")]
   #[token("self")]
   #[token("Self")]

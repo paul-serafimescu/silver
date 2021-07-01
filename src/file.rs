@@ -238,11 +238,15 @@ impl Document {
       }
     }
   }
+
+  pub fn highlight(&mut self) {
+    self.highlighted_rows = highlight(&self.file_name, &self.rows);
+  }
 }
 
 // "static" helper functions
 
-fn highlight(file_name: &str, rows: &Vec<Row>) -> Option<Vec<Vec<Parsed>>> {
+pub fn highlight(file_name: &str, rows: &Vec<Row>) -> Option<Vec<Vec<Parsed>>> {
   if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
     match *extension {
       "rs" => RustLexer::lex(&rows).parse(),

@@ -41,8 +41,6 @@ use crate::file::{
   NLPositionDescriptor, DPositionDescriptor,
   IPositionDescriptor
 };
-#[allow(unused_imports)]
-use super::highlighting;
 
 const NONE: KeyModifiers = KeyModifiers::empty();
 const UPPER: KeyModifiers = KeyModifiers::SHIFT;
@@ -584,6 +582,7 @@ impl Editor {
     );
     let num_rows = self.file.rows.len();
     let buffer = num_rows.to_string().chars().count();
+    self.file.highlight();
     self.buffer = buffer as u16;
     for terminal_row_no in self.view_frame.0..(self.view_frame.1 - 1) {
       if terminal_row_no < num_rows {
