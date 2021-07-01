@@ -258,34 +258,24 @@ impl Editor {
 
   fn write_row(&self, row_no: usize, offset: usize, row: &Row) {
     let mut printed_string = String::from(row.content());
+    let mut current_written = 0;
     printed_string.truncate((self.terminal.width - self.buffer - 1) as usize);
+    print!("{:indent$}{} ", "", row_no, indent=offset);
     if let Some(highlighted_rows) = self.file.highlighted_rows() {
-      let mut stdout = stdout();
-      let mut token_index = 0;
-      let mut visited = 0;
-      let highlighted_row = highlighted_rows.get(row_no - 1).unwrap();
-      print!("{:indent$}{} ", "", row_no, indent=offset);
-      for (index, character) in printed_string.char_indices() {
-        if visited > index { continue }
-        if character.is_whitespace() {
-          print!("{}", character);
-          visited += 1;
+      for token in highlighted_rows.get(row_no - 1).unwrap() {
+        current_written += token.get_original().len(); // temporary
+        if current_written > (self.terminal.width - self.buffer - 1) as usize { // temporary
+          break
+        }
+        if let Some(color) = token.get_color() {
+          execute!(
+            stdout(),
+            SetForegroundColor(*color),
+            Print(format!("{}", token.get_original())),
+            ResetColor
+          ).unwrap();
         } else {
-          if let Some(highlighted_token) = highlighted_row.get(token_index) {
-            token_index += 1;
-            visited += highlighted_token.get_original().len();
-            if visited >= (self.terminal.width - self.buffer - 1) as usize { break }
-            if let Some(color) = highlighted_token.get_color() {
-              execute!(
-                stdout,
-                SetForegroundColor(*color),
-                Print(highlighted_token.get_original()),
-                ResetColor
-              ).unwrap();
-            } else {
-              print!("{}", highlighted_token.get_original());
-            }
-          }
+          print!("{}", token.get_original())
         }
       }
       print!("\r\n")

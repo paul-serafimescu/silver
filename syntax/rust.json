@@ -1,22 +1,12 @@
 {
-  "keywords": [
-    "for", "in", "use", "impl",
-    "struct", "pub", "if", "else",
-    "fn", "enum", "return", "loop", "while",
-    "crate", "true", "false", "break", "continue",
-    "mod", "let", "const", "mut"
-  ],
-  "types": [
-    "bool", "String", "u8", "u16", "u32", "u64", "u128",
-    "i8", "i16", "i32", "i64", "i128", "str", "self", "Self", "Option",
-    "Result", "Vec", "Box", "f8", "f16", "f32", "f64", "f128"
-  ],
+  "highlight": true,
   "colors": {
     "keyword": "purple",
     "string": "green",
     "number": "yellow",
     "function": "blue",
     "type": "yellow",
-    "char": "orange"
+    "char": "orange",
+    "comment": "grey"
   }
 }

@@ -245,7 +245,7 @@ impl Document {
 fn highlight(file_name: &str, rows: &Vec<Row>) -> Option<Vec<Vec<Parsed>>> {
   if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
     match *extension {
-      "rs" => RustLexer::default().lex(&rows),
+      "rs" => RustLexer::lex(&rows).parse(),
       _ => None
     }
   } else { None }

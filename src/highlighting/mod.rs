@@ -7,20 +7,9 @@ pub use crossterm::style::Color;
 use crate::file::Row;
 
 #[derive(Debug)]
-pub enum Token {
-  Str,
-  Number,
-  Type,
-  Function, // I won't bother with this one for now
-  Keyword,
-  Char,
-  Unknown
-}
-
-#[derive(Debug)]
 pub struct Parsed {
   original: String,
-  parsed: Token,
+  range: std::ops::Range<usize>,
   color: Option<Color>
 }
 
@@ -29,8 +18,9 @@ impl Parsed {
     &self.original
   }
 
-  pub fn get_parsed(&self) -> &Token {
-    &self.parsed
+  // upper bound is exclusive
+  pub fn get_range(&self) -> (usize, usize) {
+    (self.range.start, self.range.end)
   }
 
   pub fn get_color(&self) -> Option<&Color> {
@@ -38,10 +28,10 @@ impl Parsed {
   }
 }
 
-pub trait Lexer {
-  fn default() -> Self;
-  fn lex(&self, rows: &Vec<Row>) -> Option<Vec<Vec<Parsed>>>;
-  fn parse(token: &str, syntax_rules: &JsonValue) -> Parsed;
+pub trait Lexer<'a> {
+  // fn default() -> Self;
+  fn lex(rows: &'a Vec<Row>) -> Self;
+  fn parse(&self) -> Option<Vec<Vec<Parsed>>>;
 }
 
 fn get_color(color_str: &str) -> Option<Color> {
@@ -53,6 +43,7 @@ fn get_color(color_str: &str) -> Option<Color> {
     "green" => Some(Color::Green),
     "yellow" => Some(Color::Yellow),
     "orange" => Some(Color::DarkYellow),
+    "grey" => Some(Color::DarkGrey),
     _ => None
   }
 }

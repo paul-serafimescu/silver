@@ -4,88 +4,132 @@ use std::fs;
 use std::env;
 use std::io::Read;
 use crate::highlighting::{
-  Lexer, Parsed, Token, Row, Color,
+  Lexer, Parsed, Row, Color,
   get_color
 };
+use logos::Logos;
 
-pub struct RustLexer {
-  _syntax: Option<json::JsonValue>
+#[derive(Debug, Logos, PartialEq)]
+enum RustToken {
+  #[regex("\"([^\"]*)\"")]
+  String,
+
+  #[regex("\'([^\"]*)\'")]
+  Char,
+
+  #[regex("\\s?fn\\s")]
+  #[regex("\\s?impl\\s")]
+  #[regex("\\s?for\\s")]
+  #[regex("\\s?in\\s")]
+  #[regex("\\s?use\\s")]
+  #[regex("\\s?mod\\s")]
+  #[regex("\\s?trait\\s")]
+  #[regex("\\s?pub\\s")]
+  #[regex("(&?|\\s?)mut\\s")]
+  #[regex("\\s?enum\\s")]
+  #[regex("\\s?let\\s")]
+  #[regex("\\s?const\\s")]
+  #[regex("\\s?true(\\s?|;)")]
+  #[regex("\\s?false(\\s?|;)")]
+  #[regex("\\s?break(\\s?|;)")]
+  #[regex("\\s?continue(\\s?|;)")]
+  Keyword,
+
+  #[token("u8")]
+  #[token("self")]
+  #[token("Self")]
+  #[token("Vec")]
+  #[token("Option")]
+  #[token("Result")]
+  #[token("Ok")]
+  #[token("Box")]
+  #[token("String")]
+  Type,
+
+  #[regex("//.+", priority = 100)]
+  Comment,
+
+  #[regex("[ \\t\\n\\r\\f\\v]+")]
+  #[error]
+  DontCare
 }
 
-impl Lexer for RustLexer {
-  fn default() -> Self {
-    let path = env::current_dir().unwrap().join("syntax/rust.json");
-    if let Ok(file_contents) = fs::read_to_string(path) {
-      Self {
-        _syntax: if let Ok(result) = json::parse(&file_contents) {
-          Some(result)
-        } else { None }
-      }
-    } else {
-      Self {
-        _syntax: None
-      }
-    }
-  }
+pub struct RustLexer<'a> {
+  _syntax: Option<json::JsonValue>,
+  _lex: Option<Vec<Vec<(RustToken, std::ops::Range<usize>)>>>,
+  _raw: Option<&'a Vec<Row>>
+}
 
-  fn lex(&self, rows: &Vec<Row>) -> Option<Vec<Vec<Parsed>>> {
-    if let Some(syntax_rules) = &self._syntax {
-      let mut parsed = Vec::new();
-      for row in rows {
-        let mut parsed_row = Vec::new();
-        let split_row = row.content()
-          .clone()
-          .split_whitespace()
-          .collect::<Vec<&str>>();
-        for token in split_row {
-          parsed_row.push(RustLexer::parse(token, &syntax_rules));
+impl<'a> Lexer<'a> for RustLexer<'a> {
+
+  fn lex(rows: &'a Vec<Row>) -> Self {
+    let path = env::current_dir().unwrap().join("syntax/rust.json");
+    let syntax = if let Ok(file_contents) = fs::read_to_string(path) {
+      if let Ok(result) = json::parse(&file_contents) {
+        result
+      } else {
+        return Self {
+          _syntax: None,
+          _lex: None,
+          _raw: None
         }
-        parsed.push(parsed_row)
       }
-      Some(parsed)
     } else {
-      None
+      return Self {
+        _syntax: None,
+        _lex: None,
+        _raw: None
+      }
+    };
+    let mut lex = Vec::new();
+    for row in rows {
+      let mut row_lex = Vec::new();
+      let lexed = RustToken::lexer(row.content()).spanned();
+      for token_range in lexed {
+        row_lex.push(token_range)
+      }
+      lex.push(row_lex)
+    }
+    Self {
+      _lex: Some(lex),
+      _syntax: Some(syntax),
+      _raw: Some(rows)
     }
   }
 
   // TODO: use syntax/rust.json to encode tokens & respective colors
-  fn parse(token: &str, syntax_rules: &JsonValue) -> Parsed {
-    let (parsed, color) = match_token(token, syntax_rules);
-    Parsed {
-      original: String::from(token),
-      parsed,
-      color
+  fn parse(&self) -> Option<Vec<Vec<Parsed>>> {
+    if self._lex == None {
+      return None
     }
+    let lexed = self._lex.as_ref().unwrap();
+    let mut parsed_file = Vec::new();
+    let mut raw_content_iter = self._raw.unwrap().into_iter();
+    for row in lexed {
+      let raw_row = raw_content_iter.next().unwrap();
+      let mut parsed_row = Vec::new();
+      for (token, range) in row {
+        let original = String::from(raw_row.content()[range.clone()].to_string());
+        parsed_row.push(Parsed {
+          color: match_color(token, self._syntax.as_ref().unwrap()),
+          range: range.clone(),
+          original
+        })
+      }
+      parsed_file.push(parsed_row)
+    }
+    Some(parsed_file)
   }
 }
 
-fn type_of(token: &str, syntax_rules: &JsonValue) -> Token {
-  let keywords = &syntax_rules["keywords"];
-  let types = &syntax_rules["types"];
-  if keywords.contains(token) {
-    Token::Keyword
-  } else if types.contains(token) {
-    Token::Type
-  } else if token.parse::<f64>().is_ok() {
-    Token::Number
-  } else if token.starts_with('\'') && token.ends_with('\'') {
-    Token::Char
-  } else if token.starts_with('\"') && token.ends_with('\"') {
-    Token::Str
-  } else {
-    Token::Unknown
-  }
-}
-
-fn match_token(token: &str, syntax_rules: &JsonValue) -> (Token, Option<Color>) {
-  let token_type = type_of(token, syntax_rules);
-  let color = match &token_type {
-    Token::Keyword => get_color(&syntax_rules["colors"]["keyword"].as_str().unwrap()),
-    Token::Type => get_color(&syntax_rules["colors"]["type"].as_str().unwrap()),
-    Token::Number => get_color(&syntax_rules["colors"]["number"].as_str().unwrap()),
-    Token::Char => get_color(&syntax_rules["colors"]["char"].as_str().unwrap()),
-    Token::Str => get_color(&syntax_rules["colors"]["string"].as_str().unwrap()),
+fn match_color(token: &RustToken, syntax_rules: &JsonValue) -> Option<Color> {
+  let colors = &syntax_rules["colors"];
+  match token {
+    RustToken::Keyword => get_color(colors["keyword"].as_str().unwrap()),
+    RustToken::Type => get_color(colors["type"].as_str().unwrap()),
+    RustToken::Char => get_color(colors["char"].as_str().unwrap()),
+    RustToken::String => get_color(colors["string"].as_str().unwrap()),
+    RustToken::Comment => get_color(colors["comment"].as_str().unwrap()),
     _ => None
-  };
-  (token_type, color)
+  }
 }
