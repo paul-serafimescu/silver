@@ -278,7 +278,7 @@ impl Editor {
       }
       print!("\r\n")
     } else {
-      print!("{:indent$}{} {}\r\n", "", row_no, printed_string, indent=offset)
+      print!("{}\r\n", printed_string)
     }
   }
 
@@ -326,6 +326,10 @@ impl Editor {
   fn handle_insert(&mut self) {
     match read().unwrap() {
       char_key!(key) | char_upper_key!(key) => self.insert(key),
+      special_key!(KeyCode::Tab) => {
+        self.insert(' ');
+        self.insert(' ') // yeah i'm forcing you to use 2 space tabs
+      },
       special_key!(KeyCode::Backspace) => self.delete(),
       special_key!(KeyCode::Enter) => self.insert_row(),
       special_key!(KeyCode::Esc) => {
@@ -616,8 +620,10 @@ impl Drop for Editor {
   fn drop(&mut self) {
     let _ = disable_raw_mode();
     let _ = self.terminal.clear();
-    if let Err(why) = self.file.save() {
-      eprintln!("{}", why)
+    if self.altered {
+      if let Err(why) = self.file.save() {
+        eprintln!("{}", why)
+      }
     }
     let _ = execute!(
       stdout(),

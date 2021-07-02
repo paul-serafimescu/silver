@@ -29,7 +29,7 @@ impl Parsed {
 }
 
 pub trait Lexer<'a> {
-  // fn default() -> Self;
+  fn highlight_off() -> Self;
   fn lex(rows: &'a Vec<Row>) -> Self;
   fn parse(&self) -> Option<Vec<Vec<Parsed>>>;
 }

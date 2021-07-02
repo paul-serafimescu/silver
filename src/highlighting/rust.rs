@@ -1,25 +1,33 @@
-#![allow(unused_imports)]
 use json::JsonValue;
 use std::fs;
 use std::env;
-use std::io::Read;
 use crate::highlighting::{
   Lexer, Parsed, Row, Color,
   get_color
 };
-use logos::Logos;
+use logos::{Logos, Lexer as LogosLexer};
 
-// TODO: add callbacks to macros, to mimic the behavior of look-ahead/look-behind regex assertions
-// these callbacks can probably do other stuff idk think about this more
+fn trim_function(token: &mut LogosLexer<RustToken>) -> String {
+  let mut string = token.slice().to_string();
+  string.pop();
+  string
+}
+
 #[derive(Debug, Logos, PartialEq)]
 enum RustToken {
-  #[regex("\"([^\"]*)\"")]
+  #[regex("\"([^\"]*)\"", priority=100)]
   String,
 
   #[regex("\'([^\"]*)\'")]
   Char,
 
-  // TODO: finish adding all the keywords
+  #[regex(r"(\s|\(|\.)-?[0-9]+(\.[0-9]+)?")]
+  Number,
+
+  #[regex(r"([a-zA-Z]+_?)*!?\(", trim_function)]
+  Function(String),
+
+  #[token(" as ")]
   #[regex("\\s?fn\\s")]
   #[regex("\\s?impl\\s")]
   #[regex("\\s?for\\s")]
@@ -36,10 +44,13 @@ enum RustToken {
   #[regex("\\s?false(\\s?|;)")]
   #[regex("\\s?break(\\s?|;)")]
   #[regex("\\s?continue(\\s?|;)")]
+  #[regex("\\s?if\\s")]
+  #[regex("\\s?else\\s")]
+  #[token("struct ")]
+  #[token("macro_rules! ")]
   Keyword,
 
-  // TODO: finish adding all the types
-  #[token("u8")]
+  #[regex("(u|i)(8|16|32|64|128)")]
   #[token("self")]
   #[token("Self")]
   #[token("Vec")]
@@ -48,6 +59,8 @@ enum RustToken {
   #[token("Ok")]
   #[token("Box")]
   #[token("String")]
+  #[token("&str")]
+  #[token("None")]
   Type,
 
   #[regex("//.+", priority = 100)]
@@ -66,31 +79,46 @@ pub struct RustLexer<'a> {
 
 impl<'a> Lexer<'a> for RustLexer<'a> {
 
+  fn highlight_off() -> Self {
+    Self {
+      _syntax: None,
+      _lex: None,
+      _raw: None
+    }
+  }
+
   fn lex(rows: &'a Vec<Row>) -> Self {
     let path = env::current_dir().unwrap().join("syntax/rust.json");
     let syntax = if let Ok(file_contents) = fs::read_to_string(path) {
       if let Ok(result) = json::parse(&file_contents) {
+        if !result["highlight"].as_bool().unwrap() {
+          return Self::highlight_off()
+        }
         result
       } else {
-        return Self {
-          _syntax: None,
-          _lex: None,
-          _raw: None
-        }
+        return Self::highlight_off()
       }
     } else {
-      return Self {
-        _syntax: None,
-        _lex: None,
-        _raw: None
-      }
+      return Self::highlight_off()
     };
     let mut lex = Vec::new();
     for row in rows {
       let mut row_lex = Vec::new();
       let lexed = RustToken::lexer(row.content()).spanned();
       for token_range in lexed {
-        row_lex.push(token_range)
+        match token_range.0 {
+          RustToken::Function(name) => {
+            row_lex.push((RustToken::Function(name), std::ops::Range {
+              start: token_range.1.start,
+              end: token_range.1.end - 1
+            }));
+            row_lex.push((RustToken::DontCare, std::ops::Range {
+              start: token_range.1.end - 1,
+              end: token_range.1.end
+            }))
+          },
+          _ => row_lex.push(token_range)
+        }
       }
       lex.push(row_lex)
     }
@@ -134,6 +162,8 @@ fn match_color(token: &RustToken, syntax_rules: &JsonValue) -> Option<Color> {
     RustToken::Char => get_color(colors["char"].as_str().unwrap()),
     RustToken::String => get_color(colors["string"].as_str().unwrap()),
     RustToken::Comment => get_color(colors["comment"].as_str().unwrap()),
+    RustToken::Number => get_color(colors["number"].as_str().unwrap()),
+    RustToken::Function(_)  => get_color(colors["function"].as_str().unwrap()),
     _ => None
   }
 }
