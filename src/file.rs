@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::io::Write;
 use std::fs::{read_to_string, OpenOptions};
 use unicode_segmentation::UnicodeSegmentation;

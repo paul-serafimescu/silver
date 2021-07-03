@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 mod rust;
 
 pub use json::JsonValue;
@@ -16,11 +15,6 @@ pub struct Parsed {
 impl Parsed {
   pub fn get_original(&self) -> &str {
     &self.original
-  }
-
-  // upper bound is exclusive
-  pub fn get_range(&self) -> (usize, usize) {
-    (self.range.start, self.range.end)
   }
 
   pub fn get_color(&self) -> Option<&Color> {

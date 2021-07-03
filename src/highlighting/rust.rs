@@ -48,6 +48,7 @@ enum RustToken {
   #[regex("\\s?else\\s")]
   #[token("struct ")]
   #[token("macro_rules! ")]
+  #[token("match ")]
   Keyword,
 
   #[regex("(u|i)(8|16|32|64|128)")]
@@ -61,6 +62,8 @@ enum RustToken {
   #[token("String")]
   #[token("&str")]
   #[token("None")]
+  #[token("usize")]
+  #[token("char ")]
   Type,
 
   #[regex("//.+", priority = 100)]

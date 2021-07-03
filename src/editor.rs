@@ -148,6 +148,7 @@ pub struct StatusBar {
 impl StatusBar {
   pub fn default() -> Self {
     let dimensions = size().unwrap();
+
     Self {
       terminal_size: dimensions,
       cmd: String::new(),
@@ -540,15 +541,15 @@ impl Editor {
 
   fn delete(&mut self) {
     let line = self.view_frame.0 + self.position.0 as usize;
-    let column = self.position.1 - self.buffer - 2;
+    let column = self.position.1 - self.buffer - 1;
     let row_length = self.file.rows.get(line).unwrap().len();
     let file = self.get_file_mut();
-    if let Some(offset) = file.handle_delete(if column == u16::MAX {
+    if let Some(offset) = file.handle_delete(if column == 0 {
       DPositionDescriptor::Beginning(line)
     } else if column as usize == row_length {
       DPositionDescriptor::End(line)
     } else {
-      DPositionDescriptor::Middle(line, column as usize)
+      DPositionDescriptor::Middle(line, (column - 1) as usize)
     }) {
       self.move_to(offset as u16 + self.buffer + 1, self.position.0 - 1)
     } else {
@@ -558,15 +559,15 @@ impl Editor {
 
   fn insert_row(&mut self) {
     let line = self.view_frame.0 + self.position.0 as usize;
-    let column = self.position.1 - self.buffer - 2;
+    let column = self.position.1 - self.buffer - 1;
     let file = self.get_file_mut();
     let row = file.get_row_mut(line).unwrap();
-    let new_row = row.add_new_line(if column as usize == row.len() {
+    let new_row = row.add_new_line(if column as usize == row.len() - 1 {
       NLPositionDescriptor::End
-    } else if column == u16::MAX {
+    } else if column == 0 {
       NLPositionDescriptor::Beginning
     } else {
-      NLPositionDescriptor::Middle(column as usize)
+      NLPositionDescriptor::Middle((column - 1) as usize)
     });
     file.insert_row(line + 1, new_row);
     self.scroll(Direction::Down);
@@ -620,7 +621,7 @@ impl Drop for Editor {
   fn drop(&mut self) {
     let _ = disable_raw_mode();
     let _ = self.terminal.clear();
-    if self.altered {
+    if self.altered && self._quit {
       if let Err(why) = self.file.save() {
         eprintln!("{}", why)
       }
