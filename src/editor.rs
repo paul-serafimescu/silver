@@ -4,10 +4,10 @@
 /// maybe adding a boolean to control single line right/left scrolling?
 /// better status bar (and maybe status bar rendering)
 /// - current line number out of total line numbers [DONE]
-/// - styling (different color?)
-/// - percent of file seems stupid I do not know why ViM does it
-/// more useful keybindings
-/// syntax highlighting? (make python look intentionally awful)
+/// - styling (different color?) [DONE]
+/// - percent of file seems stupid I do not know why ViM does it [NOT DONE, WON'T BE DONE]
+/// more useful keybindings [IN PROGRESS?]
+/// syntax highlighting? (make python look intentionally awful) [RUST = DONE]
 
 use std::io::{stdout, Write};
 use crossterm::{
@@ -112,7 +112,7 @@ impl Terminal {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum EditorMode {
   Normal,
   Command,
@@ -167,11 +167,12 @@ impl StatusBar {
     self.cmd.pop();
   }
 
-  pub fn set_mode(&mut self, mode: EditorMode) {
-    self.mode = mode
+  pub fn set_mode(&mut self, mode: &EditorMode) {
+    self.mode = *mode
   }
 
-  pub fn render(&self, current: usize, total: usize) {
+  pub fn render(&mut self, current: usize, total: usize) {
+    self.terminal_size = size().unwrap();
     let mode_str = self.mode.to_string();
     let line_chars = current.to_string().chars().count() + total.to_string().chars().count();
     let mut stdout = stdout();
@@ -236,7 +237,8 @@ impl Editor {
     execute!(
       stdout(),
       SetCursorShape(CursorShape::Block),
-      EnableBlinking
+      EnableBlinking,
+      MoveTo(0, 0)
     )?;
     loop {
       if self._quit {
@@ -251,7 +253,7 @@ impl Editor {
       }
       // apparently i'm handling all the main stuff too fast for my terminal
       // the source of the flickering needs to be resolved ASAP
-      std::thread::sleep(std::time::Duration::from_millis(1));
+      std::thread::sleep(std::time::Duration::from_micros(500));
     }
   }
 
@@ -307,13 +309,12 @@ impl Editor {
       },
       special_key!(KeyCode::Enter) => {
         self.move_to(self.position.1, self.position.0);
-        self.evaluate_expr();
-        self.mode = EditorMode::Normal;
-        self.status_bar.set_mode(EditorMode::Normal);
+        if let Ok(_) = self.evaluate_expr() {
+          self.set_mode(EditorMode::Normal)
+        }
       },
       special_key!(KeyCode::Esc) => {
-        self.mode = EditorMode::Normal;
-        self.status_bar.set_mode(EditorMode::Normal)
+        self.set_mode(EditorMode::Normal)
       },
       special_key!(KeyCode::Backspace) => {
         if self.status_bar.cmd.len() > 0 {
@@ -333,14 +334,7 @@ impl Editor {
       },
       special_key!(KeyCode::Backspace) => self.delete(),
       special_key!(KeyCode::Enter) => self.insert_row(),
-      special_key!(KeyCode::Esc) => {
-        self.mode = EditorMode::Normal;
-        let _ = execute!(
-          stdout(),
-          SetCursorShape(CursorShape::Block),
-        );
-        self.status_bar.set_mode(EditorMode::Normal)
-      },
+      special_key!(KeyCode::Esc) => self.set_mode(EditorMode::Normal),
       special_key!(KeyCode::Down) => {
         self.scroll(Direction::Down)
       },
@@ -360,17 +354,9 @@ impl Editor {
 
   fn handle_normal(&mut self) {
     match read().unwrap() {
-      char_key!('i') => {
-        self.mode = EditorMode::Insert;
-        let _ = execute!(
-          stdout(),
-          SetCursorShape(CursorShape::Line)
-        );
-        self.status_bar.set_mode(EditorMode::Insert)
-      },
+      char_key!('i') => self.set_mode(EditorMode::Insert),
       char_key!(':') => {
-        self.mode = EditorMode::Command;
-        self.status_bar.set_mode(EditorMode::Command);
+        self.set_mode(EditorMode::Command);
         self.status_bar.add_command(':');
       },
       special_key!(KeyCode::Down) => {
@@ -389,36 +375,60 @@ impl Editor {
     }
   }
 
-  fn evaluate_expr(&mut self) {
+  fn evaluate_expr(&mut self) -> Result<(), ()> {
+    let mut next_mode_not_normal = false;
     if self.status_bar.cmd.starts_with(":set") {
       let copied_cmd = self.status_bar.cmd
       .clone();
-    let split_command = copied_cmd.split_whitespace().collect::<Vec<&str>>();
-    for idx in 1..split_command.len() {
-      match *split_command.get(idx).unwrap() {
-        ":set" => (),
-        "filename" => {
-          if let Some(file_name) = split_command.get(idx + 1) {
-            self.file.set_name(*file_name)
-          }
-          break
-        },
-        _ => ()
+      let split_command = copied_cmd.split_whitespace().collect::<Vec<&str>>();
+      for idx in 1..split_command.len() {
+        match *split_command.get(idx).unwrap() {
+          ":set" => (),
+          "filename" => {
+            if let Some(file_name) = split_command.get(idx + 1) {
+              self.file.set_name(*file_name)
+            }
+            break
+          },
+          _ => ()
+        }
       }
-    }
     } else {
       let mut commands = self.status_bar.cmd.chars().rev().collect::<String>();
       while let Some(cmd) = commands.pop() {
         match cmd {
           'q' => if self.file.name() != "" || !self.altered { self._quit = true },
+          'e' => self.move_to_line_end(),
+          'a' => self.move_to_line_beginning(),
+          'A' => {
+            self.move_to_line_end();
+            self.set_mode(EditorMode::Insert);
+            next_mode_not_normal = true;
+          },
           'g' => self.move_to_beginning(),
           'G' => self.move_to_end(),
+          'x' => {
+            self._quit = true;
+            self.altered = false;
+          },
           _ => ()
         }
       }
     }
     self.status_bar.cmd.clear();
     self.status_bar.cmd_chars = 0;
+
+    if next_mode_not_normal {
+      Err(())
+    } else {
+      Ok(())
+    }
+  }
+
+  fn set_mode(&mut self, mode: EditorMode) {
+    self.status_bar.set_mode(&mode);
+    self.set_cursor(&mode);
+    self.mode = mode;
   }
 
   fn scroll(&mut self, direction: Direction) {
@@ -503,6 +513,16 @@ impl Editor {
     }
   }
 
+  fn set_cursor(&mut self, mode: &EditorMode) {
+    let _ = execute!(
+      stdout(),
+      SetCursorShape(match *mode {
+        EditorMode::Insert => CursorShape::Line,
+        _ => CursorShape::Block
+      })
+    );
+  }
+
   fn move_to_beginning(&mut self) {
     for _ in 0..self.file.len() {
       self.scroll(Direction::Up)
@@ -513,6 +533,15 @@ impl Editor {
     for _ in self.view_frame.0..self.file.len() {
       self.scroll(Direction::Down)
     }
+  }
+
+  fn move_to_line_end(&mut self) {
+    let row_len = self.file.get_row(self.position.0 as usize + self.view_frame.0).unwrap().len();
+    self.move_to(row_len as u16 + self.buffer + 1, self.position.0)
+  }
+
+  fn move_to_line_beginning(&mut self) {
+    self.move_to(self.buffer + 1, self.position.0)
   }
 
   fn clear_row(&self) {

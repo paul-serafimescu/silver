@@ -21,7 +21,7 @@ enum RustToken {
   #[regex("\'([^\"]*)\'")]
   Char,
 
-  #[regex(r"(\s|\(|\.)-?[0-9]+(\.[0-9]+)?")]
+  #[regex(r"-?[0-9]+(\.[0-9]+)?")]
   Number,
 
   #[regex(r"([a-zA-Z]+_?)*!?\(", trim_function)]
@@ -49,6 +49,7 @@ enum RustToken {
   #[token("struct ")]
   #[token("macro_rules! ")]
   #[token("match ")]
+  #[token("dyn ")]
   Keyword,
 
   #[regex("(u|i)(8|16|32|64|128)")]
@@ -63,7 +64,7 @@ enum RustToken {
   #[token("&str")]
   #[token("None")]
   #[token("usize")]
-  #[token("char ")]
+  #[token("char")]
   Type,
 
   #[regex("//.+", priority = 100)]
