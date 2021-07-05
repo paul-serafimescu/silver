@@ -1,6 +1,4 @@
 use json::JsonValue;
-use std::fs;
-use std::env;
 use crate::highlighting::{
   Lexer, Parsed, Row, Color,
   get_color
@@ -91,45 +89,36 @@ impl<'a> Lexer<'a> for RustLexer<'a> {
     }
   }
 
-  fn lex(rows: &'a Vec<Row>) -> Self {
-    let path = env::current_dir().unwrap().join("syntax/rust.json");
-    let syntax = if let Ok(file_contents) = fs::read_to_string(path) {
-      if let Ok(result) = json::parse(&file_contents) {
-        if !result["highlight"].as_bool().unwrap() {
-          return Self::highlight_off()
+  fn lex(rows: &'a Vec<Row>, syntax_file: Option<&JsonValue>) -> Self {
+    if let Some(syntax) = syntax_file {
+      let mut lex = Vec::new();
+      for row in rows {
+        let mut row_lex = Vec::new();
+        let lexed = RustToken::lexer(row.content()).spanned();
+        for token_range in lexed {
+          match token_range.0 {
+            RustToken::Function(name) => {
+              row_lex.push((RustToken::Function(name), std::ops::Range {
+                start: token_range.1.start,
+                end: token_range.1.end - 1
+              }));
+              row_lex.push((RustToken::DontCare, std::ops::Range {
+                start: token_range.1.end - 1,
+                end: token_range.1.end
+              }))
+            },
+            _ => row_lex.push(token_range)
+          }
         }
-        result
-      } else {
-        return Self::highlight_off()
+        lex.push(row_lex)
+      }
+      Self {
+        _lex: Some(lex),
+        _syntax: Some(syntax.clone()),
+        _raw: Some(rows)
       }
     } else {
-      return Self::highlight_off()
-    };
-    let mut lex = Vec::new();
-    for row in rows {
-      let mut row_lex = Vec::new();
-      let lexed = RustToken::lexer(row.content()).spanned();
-      for token_range in lexed {
-        match token_range.0 {
-          RustToken::Function(name) => {
-            row_lex.push((RustToken::Function(name), std::ops::Range {
-              start: token_range.1.start,
-              end: token_range.1.end - 1
-            }));
-            row_lex.push((RustToken::DontCare, std::ops::Range {
-              start: token_range.1.end - 1,
-              end: token_range.1.end
-            }))
-          },
-          _ => row_lex.push(token_range)
-        }
-      }
-      lex.push(row_lex)
-    }
-    Self {
-      _lex: Some(lex),
-      _syntax: Some(syntax),
-      _raw: Some(rows)
+      Self::highlight_off()
     }
   }
 

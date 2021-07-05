@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::env;
 use std::fs::{read_to_string, OpenOptions};
 use unicode_segmentation::UnicodeSegmentation;
 use crate::highlighting::*;
@@ -137,6 +138,7 @@ impl From<&str> for Row {
 pub struct Document {
   pub file_name: String,
   pub rows: Vec<Row>,
+  pub syntax_file: Option<JsonValue>,
   pub highlighted_rows: Option<Vec<Vec<Parsed>>>
 }
 
@@ -148,10 +150,25 @@ impl Document {
     for line in raw_content.lines() {
       rows.push(Row::from(line));
     }
-    let highlighted_rows = highlight(&file_name, &rows);
+    let path = env::current_dir().unwrap().join("syntax/rust.json");
+    let syntax_file = if let Ok(file_contents) = read_to_string(path) {
+      if let Ok(result) = json::parse(&file_contents) {
+        if !result["highlight"].as_bool().unwrap() {
+          None
+        } else {
+          Some(result)
+        }
+      } else {
+        None
+      }
+    } else {
+      None
+    };
+    let highlighted_rows = highlight(&file_name, &rows, &syntax_file);
     Ok(Self {
       file_name,
       rows,
+      syntax_file,
       highlighted_rows
     })
   }
@@ -160,10 +177,25 @@ impl Document {
     let file_name = String::from(file_name);
     let mut rows = Vec::new();
     rows.push(Row::from(""));
-    let highlighted_rows = highlight(&file_name, &rows);
+    let path = env::current_dir().unwrap().join("syntax/rust.json");
+    let syntax_file = if let Ok(file_contents) = read_to_string(path) {
+      if let Ok(result) = json::parse(&file_contents) {
+        if !result["highlight"].as_bool().unwrap() {
+          None
+        } else {
+          Some(result)
+        }
+      } else {
+        None
+      }
+    } else {
+      None
+    };
+    let highlighted_rows = highlight(&file_name, &rows, &syntax_file);
     Self {
       file_name,
       rows,
+      syntax_file,
       highlighted_rows
     }
   }
@@ -182,6 +214,12 @@ impl Document {
 
   pub fn get_row(&self, index: usize) -> Option<&Row> {
     self.rows.get(index)
+  }
+
+  pub fn clear_row(&mut self, index: usize) {
+    let row = self.rows.get_mut(index).unwrap();
+    row.content.clear();
+    row.len = 0
   }
 
   pub fn get_row_mut(&mut self, index: usize) -> Result<&mut Row, ()> {
@@ -238,16 +276,17 @@ impl Document {
   }
 
   pub fn highlight(&mut self) {
-    self.highlighted_rows = highlight(&self.file_name, &self.rows);
+    self.highlighted_rows = highlight(&self.file_name, &self.rows, &self.syntax_file);
   }
 }
 
 // "static" helper functions
 
-pub fn highlight(file_name: &str, rows: &Vec<Row>) -> Option<Vec<Vec<Parsed>>> {
+pub fn highlight(file_name: &str, rows: &Vec<Row>, syntax_file: &Option<JsonValue>) -> Option<Vec<Vec<Parsed>>> {
   if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
     match *extension {
-      "rs" => RustLexer::lex(&rows).parse(),
+      "rs" => RustLexer::lex(&rows, syntax_file.as_ref()).parse(),
+      "py" => PythonLexer::lex(&rows, syntax_file.as_ref()).parse(),
       _ => None
     }
   } else { None }

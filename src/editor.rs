@@ -10,6 +10,7 @@
 /// syntax highlighting? (make python look intentionally awful) [RUST = DONE]
 
 use std::io::{stdout, Write};
+use std::panic;
 use crossterm::{
   terminal::{
     enable_raw_mode,
@@ -34,7 +35,7 @@ use crossterm::{
     SavePosition, RestorePosition,
     position, SetCursorShape, CursorShape,
     EnableBlinking
-  }, execute,
+  }, execute
 };
 use crate::file::{
   Document, Row,
@@ -182,15 +183,12 @@ impl StatusBar {
         .map(|_| " ")
         .collect::<String>(),
       mode_str);
-    print!("{} | ", content);
     let _ = execute!(
       stdout,
+      Print(format!("{} | ", content)),
       SetBackgroundColor(Color::White),
-      SetForegroundColor(Color::Black)
-    );
-    print!("{}/{}\r", current, total);
-    let _ = execute!(
-      stdout,
+      SetForegroundColor(Color::Black),
+      Print(format!("{}/{}\r", current, total)),
       ResetColor
     );
   }
@@ -211,6 +209,16 @@ pub struct Editor {
 
 impl Editor {
   pub fn new(file_name: Option<&String>) -> Result<Self, std::io::Error> {
+    panic::set_hook(Box::new(|_| {
+      let _ = execute!(
+        stdout(),
+        // LeaveAlternateScreen,
+        ResetColor,
+        SetCursorShape(CursorShape::Block),
+        EnableBlinking
+      );
+      let _ = disable_raw_mode();
+    }));
     let terminal = Terminal::new()?;
     let terminal_rows = terminal.size().1;
     Ok(Editor {
@@ -251,8 +259,6 @@ impl Editor {
         EditorMode::Command => self.handle_command(),
         EditorMode::Insert => self.handle_insert()
       }
-      // apparently i'm handling all the main stuff too fast for my terminal
-      // the source of the flickering needs to be resolved ASAP
       std::thread::sleep(std::time::Duration::from_micros(500));
     }
   }
@@ -261,7 +267,11 @@ impl Editor {
     let mut printed_string = String::from(row.content());
     let mut current_written = 0;
     printed_string.truncate((self.terminal.width - self.buffer - 1) as usize);
-    print!("{:indent$}{} ", "", row_no, indent=offset);
+    let mut stdout = stdout();
+    execute!(
+      stdout,
+      Print(format!("{:indent$}{} ", "", row_no, indent=offset))
+    ).unwrap();
     if let Some(highlighted_rows) = self.file.highlighted_rows() {
       for token in highlighted_rows.get(row_no - 1).unwrap() {
         current_written += token.get_original().len(); // temporary
@@ -270,24 +280,36 @@ impl Editor {
         }
         if let Some(color) = token.get_color() {
           execute!(
-            stdout(),
+            stdout,
             SetForegroundColor(*color),
             Print(format!("{}", token.get_original())),
             ResetColor
           ).unwrap();
         } else {
-          print!("{}", token.get_original())
+          execute!(
+            stdout,
+            Print(format!("{}", token.get_original()))
+          ).unwrap();
         }
       }
-      print!("\r\n")
+      execute!(
+        stdout,
+        Print("\r\n")
+      ).unwrap();
     } else {
-      print!("{}\r\n", printed_string)
+      execute!(
+        stdout,
+        Print(format!("{}\r\n", printed_string))
+      ).unwrap();
     }
   }
 
   fn write_empty_line(&self) {
     self.clear_row();
-    print!("~\r\n")
+    execute!(
+      stdout(),
+      Print("~\r\n")
+    ).unwrap();
   }
 
   fn move_to(&mut self, column: u16, row: u16) {
@@ -314,10 +336,12 @@ impl Editor {
         }
       },
       special_key!(KeyCode::Esc) => {
-        self.set_mode(EditorMode::Normal)
+        self.set_mode(EditorMode::Normal);
+        self.status_bar.cmd.clear();
+        self.status_bar.cmd_chars = 0
       },
       special_key!(KeyCode::Backspace) => {
-        if self.status_bar.cmd.len() > 0 {
+        if self.status_bar.cmd.len() > 1 {
           self.status_bar.remove_command()
         }
       }
@@ -335,18 +359,10 @@ impl Editor {
       special_key!(KeyCode::Backspace) => self.delete(),
       special_key!(KeyCode::Enter) => self.insert_row(),
       special_key!(KeyCode::Esc) => self.set_mode(EditorMode::Normal),
-      special_key!(KeyCode::Down) => {
-        self.scroll(Direction::Down)
-      },
-      special_key!(KeyCode::Up) => {
-        self.scroll(Direction::Up)
-      },
-      special_key!(KeyCode::Left) => {
-        self.scroll(Direction::Left)
-      },
-      special_key!(KeyCode::Right) => {
-        self.scroll(Direction::Right)
-      },
+      special_key!(KeyCode::Down) => self.scroll(Direction::Down),
+      special_key!(KeyCode::Up) => self.scroll(Direction::Up),
+      special_key!(KeyCode::Left) => self.scroll(Direction::Left),
+      special_key!(KeyCode::Right) => self.scroll(Direction::Right),
       _ => () // TODO: all the insert operations, refreshing the buffer
     }
     self.altered = true;
@@ -384,6 +400,15 @@ impl Editor {
       for idx in 1..split_command.len() {
         match *split_command.get(idx).unwrap() {
           ":set" => (),
+          "line" => {
+            if let Some(line_no) = split_command.get(idx + 1) {
+              let line_no = line_no.parse::<u16>().unwrap();
+              if line_no as usize <= self.file.len() {
+                self.move_to(self.position.1, line_no - 1)
+              }
+            }
+            break
+          }
           "filename" => {
             if let Some(file_name) = split_command.get(idx + 1) {
               self.file.set_name(*file_name)
@@ -404,6 +429,10 @@ impl Editor {
             self.move_to_line_end();
             self.set_mode(EditorMode::Insert);
             next_mode_not_normal = true;
+          },
+          'd' => {
+            let row_no = self.position.0 as usize + self.view_frame.0;
+            self.file.clear_row(row_no)
           },
           'g' => self.move_to_beginning(),
           'G' => self.move_to_end(),
@@ -616,8 +645,8 @@ impl Editor {
     );
     let num_rows = self.file.rows.len();
     let buffer = num_rows.to_string().chars().count();
-    self.file.highlight();
     self.buffer = buffer as u16;
+    self.file.highlight();
     for terminal_row_no in self.view_frame.0..(self.view_frame.1 - 1) {
       if terminal_row_no < num_rows {
         self.clear_row();
@@ -657,6 +686,7 @@ impl Drop for Editor {
     }
     let _ = execute!(
       stdout(),
+      ResetColor,
       SetCursorShape(CursorShape::Block),
       LeaveAlternateScreen,
     );

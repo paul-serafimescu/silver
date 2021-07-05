@@ -1,7 +1,9 @@
 mod rust;
+mod python;
 
 pub use json::JsonValue;
 pub use rust::RustLexer;
+pub use python::PythonLexer;
 pub use crossterm::style::Color;
 use crate::file::Row;
 
@@ -24,7 +26,7 @@ impl Parsed {
 
 pub trait Lexer<'a> {
   fn highlight_off() -> Self;
-  fn lex(rows: &'a Vec<Row>) -> Self;
+  fn lex(rows: &'a Vec<Row>, syntax_file: Option<&JsonValue>) -> Self;
   fn parse(&self) -> Option<Vec<Vec<Parsed>>>;
 }
 
