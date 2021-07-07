@@ -1,7 +1,7 @@
 {
   "highlight": true,
   "colors": {
-    "keyword": "darkblue",
+    "keyword": "purple",
     "string": "green",
     "number": "yellow",
     "function": "blue",

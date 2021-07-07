@@ -24,10 +24,16 @@ pub enum DPositionDescriptor {
   End(usize)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Row {
   content: String,
   len: usize,
+}
+
+impl AsRef<Row> for Row {
+  fn as_ref(&self) -> &Self {
+    &self
+  }
 }
 
 impl Row {
@@ -277,6 +283,10 @@ impl Document {
 
   pub fn highlight(&mut self) {
     self.highlighted_rows = highlight(&self.file_name, &self.rows, &self.syntax_file);
+  }
+
+  pub fn replace(&mut self, index: usize, new_row: Row) {
+    self.rows[index] = new_row;
   }
 }
 

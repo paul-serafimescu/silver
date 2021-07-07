@@ -1,4 +1,7 @@
 /// TODO:
+/// fix the usize vs u16 stuff **urgent**
+/// searching
+/// undo (typed enum list?)
 /// INSERT mode [DONE (i think)]
 /// find alternative to truncation on overflowing lines (no, it's not OK to assume I use good practice)
 /// maybe adding a boolean to control single line right/left scrolling?
@@ -42,6 +45,7 @@ use crate::file::{
   NLPositionDescriptor, DPositionDescriptor,
   IPositionDescriptor
 };
+use crate::history::*;
 
 const NONE: KeyModifiers = KeyModifiers::empty();
 const UPPER: KeyModifiers = KeyModifiers::SHIFT;
@@ -200,6 +204,7 @@ pub struct Editor {
   pub file: Document,
   pub mode: EditorMode,
   pub status_bar: StatusBar,
+  pub history: History,
   altered: bool,
   view_frame: (usize, usize),
   _quit: bool,
@@ -236,7 +241,8 @@ impl Editor {
       status_bar: StatusBar::default(),
       view_frame: (0, terminal_rows as usize),
       position: (0, 0),
-      buffer: 0
+      buffer: 0,
+      history: History::new()
     })
   }
 
@@ -402,9 +408,8 @@ impl Editor {
           ":set" => (),
           "line" => {
             if let Some(line_no) = split_command.get(idx + 1) {
-              let line_no = line_no.parse::<u16>().unwrap();
-              if line_no as usize <= self.file.len() {
-                self.move_to(self.position.1, line_no - 1)
+              if let Ok(line_no) = line_no.parse::<u16>() {
+                self.goto_line(line_no);
               }
             }
             break
@@ -432,6 +437,7 @@ impl Editor {
           },
           'd' => {
             let row_no = self.position.0 as usize + self.view_frame.0;
+            self.history.push(HistoryNode::create(&self.file.rows[row_no..(row_no + 1)], row_no..(row_no + 1)));
             self.file.clear_row(row_no)
           },
           'g' => self.move_to_beginning(),
@@ -439,6 +445,21 @@ impl Editor {
           'x' => {
             self._quit = true;
             self.altered = false;
+          },
+          'u' => {
+            let mut modifer = String::new();
+            while let Some(character) = commands.pop() {
+              if let Some(_) = character.to_digit(10) {
+                modifer.push(character)
+              } else {
+                commands.push(character);
+                break
+              }
+            }
+            let modifer = modifer.parse::<u32>().unwrap();
+            for _ in 0..modifer {
+              self.undo()
+            }
           },
           _ => ()
         }
@@ -458,6 +479,21 @@ impl Editor {
     self.status_bar.set_mode(&mode);
     self.set_cursor(&mode);
     self.mode = mode;
+  }
+
+  fn goto_line(&mut self, line_no: u16) {
+    if line_no as usize <= self.file.len() {
+      let difference = line_no as i32 - self.position.0 as i32 - self.view_frame.0 as i32;
+      if difference <= 0 {
+        for _ in 0..(difference.abs() + 1) {
+          self.scroll(Direction::Up)
+        }
+      } else {
+        for _ in 0..(difference - 1) {
+          self.scroll(Direction::Down)
+        }
+      }
+    }
   }
 
   fn scroll(&mut self, direction: Direction) {
@@ -587,6 +623,10 @@ impl Editor {
   fn insert(&mut self, key: char) {
     let line = self.view_frame.0 + self.position.0 as usize;
     let column = self.position.1 - self.buffer - 1;
+    {
+      let rows = &self.file.rows[line..(line + 1)];
+      self.history.push(HistoryNode::create(rows, line..(line + 1)));
+    }
     let file = self.get_file_mut();
     let row = file.get_row_mut(line).unwrap();
     row.insert(if column as usize == row.len() {
@@ -600,6 +640,10 @@ impl Editor {
   fn delete(&mut self) {
     let line = self.view_frame.0 + self.position.0 as usize;
     let column = self.position.1 - self.buffer - 1;
+    {
+      let rows = &self.file.rows[line..(line + 1)];
+      self.history.push(HistoryNode::create(rows, line..(line + 1)));
+    }
     let row_length = self.file.rows.get(line).unwrap().len();
     let file = self.get_file_mut();
     if let Some(offset) = file.handle_delete(if column == 0 {
@@ -634,6 +678,19 @@ impl Editor {
 
   fn move_to_line_start(&mut self) {
     self.move_to(self.buffer + 1, self.position.0)
+  }
+
+  fn undo(&mut self) {
+    if let Some(node) = self.history.pop() {
+      let (range, mut altered_rows) = node.extract();
+      altered_rows.reverse();
+      let rest_cursor = range.end;
+      for row_no in range {
+        self.file.replace(row_no, altered_rows.pop().unwrap())
+      }
+      self.goto_line(rest_cursor as u16);
+      self.move_to_line_end()
+    }
   }
 
   fn render(&mut self) {
