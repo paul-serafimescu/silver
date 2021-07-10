@@ -29,7 +29,6 @@ pub enum DPositionDescriptor {
 pub struct Row {
   content: String,
   len: usize,
-  search_results: Vec<(usize, usize)>
 }
 
 impl AsRef<Row> for Row {
@@ -47,23 +46,16 @@ impl Row {
     self.len
   }
 
-  #[allow(dead_code)]
-  pub fn results(&self) -> &Vec<(usize, usize)> {
-    &self.search_results
-  }
-
-  pub fn search_for(&mut self, expr: &String) -> usize {
-    let mut counter = 0;
+  pub fn search_for(&mut self, row_id: usize, expr: &String) -> (usize, Vec<(usize, usize)>) {
     let reg_expr = if let Ok(reg_expr) = Regex::new(expr) {
       reg_expr
     } else {
-      return counter
+      return (0, Vec::new())
     };
-    self.search_results = reg_expr.find_iter(&self.content)
-      .filter_map(|regex_match| Some((regex_match.start(), regex_match.end())))
+    let search_results: Vec<(usize, usize)> = reg_expr.find_iter(&self.content)
+      .filter_map(|regex_match| Some((row_id, regex_match.start())))
       .collect();
-    counter += self.search_results.len();
-    counter
+    (search_results.len(), search_results)
   }
 
   pub fn insert(&mut self, descrip: IPositionDescriptor) {
@@ -96,12 +88,10 @@ impl Row {
       NLPositionDescriptor::Beginning => {
         let len = self.content.graphemes(true).count();
         let content = self.content.clone();
-        let search_results = Vec::new();
         self.content = old;
         Row {
           content,
           len,
-          search_results
         }
       },
       NLPositionDescriptor::Middle(at) => {
@@ -115,20 +105,16 @@ impl Row {
         self.content = old;
         self.len = self.content.graphemes(true).count();
         let len = new.graphemes(true).count();
-        let search_results = Vec::new();
         Row {
           content: new,
           len,
-          search_results
         }
       },
       NLPositionDescriptor::End => {
         let len = new.graphemes(true).count();
-        let search_results = Vec::new();
         Row {
           content: new,
           len,
-          search_results
         }
       }
     }
@@ -163,7 +149,6 @@ impl From<&str> for Row {
     Row {
       content: String::from(string),
       len: string.graphemes(true).count(),
-      search_results: Vec::new()
     }
   }
 }
@@ -173,7 +158,7 @@ pub struct Document {
   pub file_name: String,
   pub rows: Vec<Row>,
   pub syntax_file: Option<JsonValue>,
-  pub highlighted_rows: Option<Vec<Vec<Parsed>>>
+  pub highlighted_rows: Option<Vec<Vec<Parsed>>>,
 }
 
 impl Document {
@@ -203,7 +188,7 @@ impl Document {
       file_name,
       rows,
       syntax_file,
-      highlighted_rows
+      highlighted_rows,
     })
   }
 
@@ -230,7 +215,7 @@ impl Document {
       file_name,
       rows,
       syntax_file,
-      highlighted_rows
+      highlighted_rows,
     }
   }
 
@@ -317,12 +302,17 @@ impl Document {
     self.rows[index] = new_row;
   }
 
-  pub fn search_for(&mut self, expr: &String) -> usize {
+  // return type is as follows:
+  // (num_results, Vec<(row_idx, match_idx_start)>)
+  pub fn search_for(&mut self, expr: &String) -> (usize, Vec<(usize, usize)>) {
     let mut counter = 0;
-    for row in &mut self.rows {
-      counter += row.search_for(expr)
+    let mut search_results = Vec::new();
+    for (row_id, row) in self.rows.iter_mut().enumerate() {
+      let (num_results, mut results) = row.search_for(row_id, expr);
+      counter += num_results;
+      search_results.append(&mut results)
     }
-    counter
+    (counter, search_results)
   }
 }
 

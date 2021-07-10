@@ -121,16 +121,18 @@ impl Terminal {
 pub enum EditorMode {
   Normal,
   Command,
-  Insert
+  Insert,
+  Search
 }
 
 impl EditorMode {
   pub fn to_string(&self) -> String {
-    match self {
-      EditorMode::Normal => String::from("VIEW"),
-      EditorMode::Command => String::from("COMMAND"),
-      EditorMode::Insert => String::from("INSERT")
-    }
+    String::from(match self {
+      EditorMode::Normal => "VIEW",
+      EditorMode::Command => "COMMAND",
+      EditorMode::Insert => "INSERT",
+      EditorMode::Search => "SEARCH"
+    })
   }
 }
 
@@ -205,6 +207,7 @@ pub struct Editor {
   pub mode: EditorMode,
   pub status_bar: StatusBar,
   pub history: History,
+  pub search_results: Option<std::vec::IntoIter<(usize, usize)>>,
   altered: bool,
   view_frame: (usize, usize),
   _quit: bool,
@@ -242,7 +245,8 @@ impl Editor {
       view_frame: (0, terminal_rows as usize),
       position: (0, 0),
       buffer: 0,
-      history: History::new()
+      history: History::new(),
+      search_results: None
     })
   }
 
@@ -263,7 +267,8 @@ impl Editor {
       match &self.mode {
         EditorMode::Normal => self.handle_normal(),
         EditorMode::Command => self.handle_command(),
-        EditorMode::Insert => self.handle_insert()
+        EditorMode::Insert => self.handle_insert(),
+        EditorMode::Search => self.handle_search()
       }
       std::thread::sleep(std::time::Duration::from_millis(1));
     }
@@ -398,6 +403,26 @@ impl Editor {
     }
   }
 
+  fn handle_search(&mut self) {
+    match read().unwrap() {
+      special_key!(KeyCode::Esc) => self.set_mode(EditorMode::Normal),
+      special_key!(KeyCode::Enter) => {
+        if let Some(search_results) = &mut self.search_results {
+          if let Some((row_idx, row_offset)) = search_results.next() {
+            self.goto_line(row_idx as u16 + 1);
+            self.move_to(row_offset as u16 + self.buffer + 1, self.position.0)
+          } else {
+            self.set_mode(EditorMode::Normal)
+          }
+        } else {
+          self.set_mode(EditorMode::Normal)
+        }
+      },
+      char_key!('i') => self.set_mode(EditorMode::Insert),
+      _ => ()
+    }
+  }
+
   fn evaluate_expr(&mut self) -> Result<(), ()> {
     let mut next_mode_not_normal = false;
     if self.status_bar.cmd.starts_with(":set") {
@@ -456,7 +481,19 @@ impl Editor {
           },
           '/' => {
             if let Some(arg) = word_modifier(&mut commands) {
-              self.search(arg)
+              next_mode_not_normal = true;
+              self.search(arg);
+              if let Some(result_iter) = &mut self.search_results {
+                if let Some((row_no, row_offset)) = result_iter.next() {
+                  self.goto_line(row_no as u16 + 1);
+                  self.move_to(row_offset as u16 + self.buffer + 1, self.position.0)
+                } else {
+                  self.set_mode(EditorMode::Normal);
+                  next_mode_not_normal = false
+                }
+              } else {
+                next_mode_not_normal = false
+              }
             }
             break
           }
@@ -693,8 +730,11 @@ impl Editor {
   }
 
   fn search(&mut self, expr: String) {
-    let num_results = self.file.search_for(&expr);
-    // TODO: create new SEARCH mode and handle keybindings for that
+    let (num_results, results) = self.file.search_for(&expr);
+    if num_results > 0 {
+      self.set_mode(EditorMode::Search);
+      self.search_results = Some(results.into_iter())
+    }
   }
 
   fn render(&mut self) {
