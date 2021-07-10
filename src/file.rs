@@ -2,6 +2,7 @@ use std::io::Write;
 use std::env;
 use std::fs::{read_to_string, OpenOptions};
 use unicode_segmentation::UnicodeSegmentation;
+use regex::Regex;
 use crate::highlighting::*;
 
 // newline position descriptor
@@ -28,6 +29,7 @@ pub enum DPositionDescriptor {
 pub struct Row {
   content: String,
   len: usize,
+  search_results: Vec<(usize, usize)>
 }
 
 impl AsRef<Row> for Row {
@@ -43,6 +45,25 @@ impl Row {
 
   pub fn len(&self) -> usize {
     self.len
+  }
+
+  #[allow(dead_code)]
+  pub fn results(&self) -> &Vec<(usize, usize)> {
+    &self.search_results
+  }
+
+  pub fn search_for(&mut self, expr: &String) -> usize {
+    let mut counter = 0;
+    let reg_expr = if let Ok(reg_expr) = Regex::new(expr) {
+      reg_expr
+    } else {
+      return counter
+    };
+    self.search_results = reg_expr.find_iter(&self.content)
+      .filter_map(|regex_match| Some((regex_match.start(), regex_match.end())))
+      .collect();
+    counter += self.search_results.len();
+    counter
   }
 
   pub fn insert(&mut self, descrip: IPositionDescriptor) {
@@ -75,10 +96,12 @@ impl Row {
       NLPositionDescriptor::Beginning => {
         let len = self.content.graphemes(true).count();
         let content = self.content.clone();
+        let search_results = Vec::new();
         self.content = old;
         Row {
           content,
-          len
+          len,
+          search_results
         }
       },
       NLPositionDescriptor::Middle(at) => {
@@ -92,16 +115,20 @@ impl Row {
         self.content = old;
         self.len = self.content.graphemes(true).count();
         let len = new.graphemes(true).count();
+        let search_results = Vec::new();
         Row {
           content: new,
-          len
+          len,
+          search_results
         }
       },
       NLPositionDescriptor::End => {
         let len = new.graphemes(true).count();
+        let search_results = Vec::new();
         Row {
           content: new,
-          len
+          len,
+          search_results
         }
       }
     }
@@ -135,7 +162,8 @@ impl From<&str> for Row {
   fn from(string: &str) -> Self {
     Row {
       content: String::from(string),
-      len: string.graphemes(true).count()
+      len: string.graphemes(true).count(),
+      search_results: Vec::new()
     }
   }
 }
@@ -287,6 +315,14 @@ impl Document {
 
   pub fn replace(&mut self, index: usize, new_row: Row) {
     self.rows[index] = new_row;
+  }
+
+  pub fn search_for(&mut self, expr: &String) -> usize {
+    let mut counter = 0;
+    for row in &mut self.rows {
+      counter += row.search_for(expr)
+    }
+    counter
   }
 }
 

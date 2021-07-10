@@ -1,7 +1,7 @@
 /// TODO:
 /// fix the usize vs u16 stuff **urgent**
 /// searching
-/// undo (typed enum list?)
+/// undo [DONE]
 /// INSERT mode [DONE (i think)]
 /// find alternative to truncation on overflowing lines (no, it's not OK to assume I use good practice)
 /// maybe adding a boolean to control single line right/left scrolling?
@@ -31,7 +31,7 @@ use crossterm::{
     SetForegroundColor, SetBackgroundColor,
     ResetColor,
     Color,
-    Print
+    Print, SetAttribute
   },
   cursor::{
     MoveTo, Hide, Show,
@@ -127,7 +127,7 @@ pub enum EditorMode {
 impl EditorMode {
   pub fn to_string(&self) -> String {
     match self {
-      EditorMode::Normal => String::from("NORMAL"),
+      EditorMode::Normal => String::from("VIEW"),
       EditorMode::Command => String::from("COMMAND"),
       EditorMode::Insert => String::from("INSERT")
     }
@@ -265,7 +265,7 @@ impl Editor {
         EditorMode::Command => self.handle_command(),
         EditorMode::Insert => self.handle_insert()
       }
-      std::thread::sleep(std::time::Duration::from_micros(500));
+      std::thread::sleep(std::time::Duration::from_millis(1));
     }
   }
 
@@ -284,10 +284,11 @@ impl Editor {
         if current_written > (self.terminal.width - self.buffer - 1) as usize { // temporary
           break
         }
-        if let Some(color) = token.get_color() {
+        if let (Some(color), attribute) = token.get_color_and_attribute() {
           execute!(
             stdout,
             SetForegroundColor(*color),
+            SetAttribute(*attribute),
             Print(format!("{}", token.get_original())),
             ResetColor
           ).unwrap();
@@ -438,7 +439,8 @@ impl Editor {
           'd' => {
             let row_no = self.position.0 as usize + self.view_frame.0;
             self.history.push(HistoryNode::create(&self.file.rows[row_no..(row_no + 1)], row_no..(row_no + 1)));
-            self.file.clear_row(row_no)
+            self.file.clear_row(row_no);
+            self.move_to_line_beginning()
           },
           'g' => self.move_to_beginning(),
           'G' => self.move_to_end(),
@@ -447,20 +449,17 @@ impl Editor {
             self.altered = false;
           },
           'u' => {
-            let mut modifer = String::new();
-            while let Some(character) = commands.pop() {
-              if let Some(_) = character.to_digit(10) {
-                modifer.push(character)
-              } else {
-                commands.push(character);
-                break
-              }
-            }
-            let modifer = modifer.parse::<u32>().unwrap();
-            for _ in 0..modifer {
+            let reps = numeric_modifer(&mut commands);
+            for _ in 0..reps {
               self.undo()
             }
           },
+          '/' => {
+            if let Some(arg) = word_modifier(&mut commands) {
+              self.search(arg)
+            }
+            break
+          }
           _ => ()
         }
       }
@@ -693,6 +692,11 @@ impl Editor {
     }
   }
 
+  fn search(&mut self, expr: String) {
+    let num_results = self.file.search_for(&expr);
+    // TODO: create new SEARCH mode and handle keybindings for that
+  }
+
   fn render(&mut self) {
     let _ = execute!(
       stdout(),
@@ -744,11 +748,39 @@ impl Drop for Editor {
     let _ = execute!(
       stdout(),
       ResetColor,
-      SetCursorShape(CursorShape::Block),
       LeaveAlternateScreen,
     );
     // println!("{:?}", self.file.highlighted_rows())
     // println!("{:?}", self.file)
     // println!("row {} column {}", self.position.0, self.position.1);
+  }
+}
+
+fn numeric_modifer(commands: &mut String) -> u32 {
+  let mut modifier = String::new();
+  while let Some(character) = commands.pop() {
+    if let Some(_) = character.to_digit(10) {
+      modifier.push(character)
+    } else {
+      commands.push(character);
+      break
+    }
+  }
+  if let Ok(modifier) = modifier.parse::<u32>() {
+    modifier
+  } else {
+    1
+  }
+}
+
+fn word_modifier(commands: &mut String) -> Option<String> {
+  let mut modifier = String::new();
+  while let Some(character) = commands.pop() {
+    modifier.push(character)
+  }
+  if modifier.len() > 0 {
+    Some(modifier)
+  } else {
+    None
   }
 }

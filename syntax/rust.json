@@ -8,5 +8,8 @@
     "type": "yellow",
     "char": "orange",
     "comment": "grey"
+  },
+  "style": {
+    "function": "bold"
   }
 }

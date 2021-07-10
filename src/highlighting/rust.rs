@@ -1,7 +1,7 @@
 use json::JsonValue;
 use crate::highlighting::{
   Lexer, Parsed, Row, Color,
-  get_color
+  get_color, Attribute
 };
 use logos::{Logos, Lexer as LogosLexer};
 
@@ -16,7 +16,7 @@ enum RustToken {
   #[regex("\"([^\"]*)\"", priority=100)]
   String,
 
-  #[regex("\'([^\"]*)\'")]
+  #[regex("\'([^\']*)\'")]
   Char,
 
   #[regex(r"-?[0-9]+(\.[0-9]+)?")]
@@ -48,6 +48,7 @@ enum RustToken {
   #[token("macro_rules! ")]
   #[token("match ")]
   #[token("dyn ")]
+  #[token("loop")]
   Keyword,
 
   #[regex("(u|i)(8|16|32|64|128)")]
@@ -138,7 +139,8 @@ impl<'a> Lexer<'a> for RustLexer<'a> {
         parsed_row.push(Parsed {
           color: match_color(token, self._syntax.as_ref().unwrap()),
           range: range.clone(),
-          original
+          original,
+          attr: get_attribute(token, self._syntax.as_ref().unwrap())
         })
       }
       parsed_file.push(parsed_row)
@@ -158,5 +160,27 @@ fn match_color(token: &RustToken, syntax_rules: &JsonValue) -> Option<Color> {
     RustToken::Number => get_color(colors["number"].as_str().unwrap()),
     RustToken::Function(_)  => get_color(colors["function"].as_str().unwrap()),
     _ => None
+  }
+}
+
+fn get_attribute(token: &RustToken, syntax_rules: &JsonValue) -> Attribute {
+  let token_type = match token {
+    RustToken::Keyword => "keyword",
+    RustToken::Type => "type",
+    RustToken::Char => "char",
+    RustToken::String => "string",
+    RustToken::Comment => "comment",
+    RustToken::Number => "number",
+    RustToken::Function(_)  => "function",
+    _ => ""
+  };
+  if let Some(attribute) = &syntax_rules["style"][token_type].as_str() {
+    match *attribute {
+      "bold" => Attribute::Bold,
+      "italic" => Attribute::Italic,
+      _ => Attribute::NormalIntensity
+    }
+  } else {
+    Attribute::NormalIntensity
   }
 }

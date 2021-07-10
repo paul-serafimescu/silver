@@ -3,7 +3,8 @@ use std::ops::Range;
 use rand::Rng;
 use unicode_segmentation::UnicodeSegmentation;
 use crate::highlighting::{
-  Lexer, Parsed, Row, Color, get_color, JsonValue
+  Lexer, Parsed, Row, Color, get_color, JsonValue,
+  Attribute
 };
 
 #[derive(Debug, PartialEq)]
@@ -82,7 +83,8 @@ impl<'a> Lexer<'a> for PythonLexer<'a> {
         parsed_row.push(Parsed {
           color: match_color(),
           range: range.clone(),
-          original
+          original,
+          attr: Attribute::Reset
         })
       }
       parsed_file.push(parsed_row)

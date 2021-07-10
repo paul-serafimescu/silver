@@ -4,14 +4,15 @@ mod python;
 pub use json::JsonValue;
 pub use rust::RustLexer;
 pub use python::PythonLexer;
-pub use crossterm::style::Color;
+pub use crossterm::style::{Color, Attribute};
 use crate::file::Row;
 
 #[derive(Debug)]
 pub struct Parsed {
   original: String,
   range: std::ops::Range<usize>,
-  color: Option<Color>
+  color: Option<Color>,
+  attr: Attribute
 }
 
 impl Parsed {
@@ -19,8 +20,8 @@ impl Parsed {
     &self.original
   }
 
-  pub fn get_color(&self) -> Option<&Color> {
-    self.color.as_ref()
+  pub fn get_color_and_attribute(&self) -> (Option<&Color>, &Attribute) {
+    (self.color.as_ref(), &self.attr)
   }
 }
 
