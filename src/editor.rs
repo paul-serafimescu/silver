@@ -211,6 +211,8 @@ pub struct Editor {
   altered: bool,
   view_frame: (usize, usize),
   _quit: bool,
+  _search_current: usize,
+  _search_total: usize,
   position: (u16, u16),
   buffer: u16
 }
@@ -246,7 +248,9 @@ impl Editor {
       position: (0, 0),
       buffer: 0,
       history: History::new(),
-      search_results: None
+      search_results: None,
+      _search_current: 0,
+      _search_total: 0
     })
   }
 
@@ -409,6 +413,7 @@ impl Editor {
       special_key!(KeyCode::Enter) => {
         if let Some(search_results) = &mut self.search_results {
           if let Some((row_idx, row_offset)) = search_results.next() {
+            self._search_current += 1;
             self.goto_line(row_idx as u16 + 1);
             self.move_to(row_offset as u16 + self.buffer + 1, self.position.0)
           } else {
@@ -732,6 +737,8 @@ impl Editor {
   fn search(&mut self, expr: String) {
     let (num_results, results) = self.file.search_for(&expr);
     if num_results > 0 {
+      self._search_total = num_results;
+      self._search_current = 1;
       self.set_mode(EditorMode::Search);
       self.search_results = Some(results.into_iter())
     }
@@ -757,7 +764,10 @@ impl Editor {
         self.write_empty_line();
       }
     }
-    self.status_bar.render(self.view_frame.0 + self.position.0 as usize + 1, self.file.len());
+    match self.mode {
+      EditorMode::Search => self.status_bar.render(self._search_current, self._search_total),
+      _ => self.status_bar.render(self.view_frame.0 + self.position.0 as usize + 1, self.file.len())
+    }
     match self.mode {
       EditorMode::Command => (),
       _ => {
