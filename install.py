@@ -7,12 +7,16 @@ i'll fix it later lol
 import sys
 import os
 import subprocess
+import shutil
 
 PLATFORM = sys.platform
+HOME = os.path.expanduser("~")
 
 if __name__ == '__main__':
   if 'linux' in PLATFORM:
-    subprocess.call(["cargo", "build", "--release"])
-    path = os.path.join(os.path.abspath(os.path.curdir), "target", "release")
-    with open(os.path.expanduser("~/.bashrc"), "a") as config:
-      config.write(f"export PATH=\"{path}:$PATH\"")
+    subprocess.call(["cargo", "install", "--path", "."])
+    try:
+      os.mkdir(os.path.join(HOME, ".editrc"))
+    except OSError as error:
+      pass
+    shutil.copytree("syntax", os.path.join(HOME, ".editrc/syntax"), dirs_exist_ok=True)

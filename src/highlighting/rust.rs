@@ -49,6 +49,7 @@ enum RustToken {
   #[token("match ")]
   #[token("dyn ")]
   #[token("loop")]
+  #[token("async")]
   Keyword,
 
   #[regex("(u|i)(8|16|32|64|128)")]
@@ -64,6 +65,7 @@ enum RustToken {
   #[token("None")]
   #[token("usize")]
   #[token("char")]
+  #[token("bool")]
   Type,
 
   #[regex("//.+", priority = 100)]

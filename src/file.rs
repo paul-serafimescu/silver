@@ -1,8 +1,8 @@
 use std::io::Write;
-use std::env;
 use std::fs::{read_to_string, OpenOptions};
 use unicode_segmentation::UnicodeSegmentation;
 use regex::Regex;
+use dirs::home_dir;
 use crate::highlighting::*;
 
 // newline position descriptor
@@ -169,7 +169,13 @@ impl Document {
     for line in raw_content.lines() {
       rows.push(Row::from(line));
     }
-    let path = env::current_dir().unwrap().join("syntax/rust.json");
+    let path = home_dir().unwrap().join(if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
+      match *extension {
+        "rs" => ".editrc/syntax/rust.json",
+        "py" => ".editrc/syntax/python.json",
+        _ => ""
+      }
+    } else { "" });
     let syntax_file = if let Ok(file_contents) = read_to_string(path) {
       if let Ok(result) = json::parse(&file_contents) {
         if !result["highlight"].as_bool().unwrap() {
@@ -196,7 +202,13 @@ impl Document {
     let file_name = String::from(file_name);
     let mut rows = Vec::new();
     rows.push(Row::from(""));
-    let path = env::current_dir().unwrap().join("syntax/rust.json");
+    let path = home_dir().unwrap().join(if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
+      match *extension {
+        "rs" => ".editrc/syntax/rust.json",
+        "py" => ".editrc/syntax/python.json",
+        _ => ""
+      }
+    } else { "" });
     let syntax_file = if let Ok(file_contents) = read_to_string(path) {
       if let Ok(result) = json::parse(&file_contents) {
         if !result["highlight"].as_bool().unwrap() {

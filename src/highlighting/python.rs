@@ -84,7 +84,7 @@ impl<'a> Lexer<'a> for PythonLexer<'a> {
           color: match_color(),
           range: range.clone(),
           original,
-          attr: Attribute::Reset
+          attr: Attribute::NormalIntensity
         })
       }
       parsed_file.push(parsed_row)
