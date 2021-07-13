@@ -201,7 +201,9 @@ impl Document {
         match *extension {
           "rs" => ".editrc/syntax/rust.json",
           "py" => ".editrc/syntax/python.json",
-          "c" | "cc" => ".editrc/syntax/c.json",
+          "c" |
+          "cc" |
+          "h" => ".editrc/syntax/c.json",
           _ => ""
         }
       } else { "" })) {
@@ -328,7 +330,9 @@ pub fn highlight(file_name: &str, rows: &Vec<Row>, syntax_file: &Option<JsonValu
     match *extension {
       "rs" => RustLexer::lex(&rows, syntax_file.as_ref()).parse(),
       "py" => PythonLexer::lex(&rows, syntax_file.as_ref()).parse(),
-      "c" => CLexer::lex(&rows, syntax_file.as_ref()).parse(),
+      "c" |
+      "cc" |
+      "h" => CLexer::lex(&rows, syntax_file.as_ref()).parse(),
       _ => None
     }
   } else { None }

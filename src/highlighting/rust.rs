@@ -1,9 +1,8 @@
-use json::JsonValue;
 use crate::highlighting::{
   Lexer, Parsed, Row, Color,
-  get_color, Attribute
+  get_color, Attribute, Logos, LogosLexer,
+  JsonValue
 };
-use logos::{Logos, Lexer as LogosLexer};
 
 fn trim_function(token: &mut LogosLexer<RustToken>) -> String {
   let mut string = token.slice().to_string();

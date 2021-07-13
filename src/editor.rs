@@ -704,6 +704,7 @@ impl Editor {
     } else {
       DPositionDescriptor::Middle(line, (column - 1) as usize)
     }) {
+      self.set_buffer();
       if self.position.0 == 0 && column == 0 {
         self.scroll(Direction::Up);
         self.move_to(offset as u16 + self.buffer + 1, self.position.0)
@@ -720,17 +721,30 @@ impl Editor {
     let column = self.position.1 - self.buffer - 1;
     let file = self.get_file_mut();
     let row = file.get_row_mut(line).unwrap();
-    let new_row = row.add_new_line(if column as usize == row.len() - 1 {
-      NLPositionDescriptor::End
-    } else if column == 0 {
+    let mut add_closing_brace = false;
+    if let Some(last_key) = row.content().trim_end().chars().last() {
+      add_closing_brace = last_key == '{';
+    }
+    let new_row = row.add_new_line(if column == 0 {
       NLPositionDescriptor::Beginning
+    } else if column as usize == row.len() - 1 {
+      NLPositionDescriptor::End
     } else {
       NLPositionDescriptor::Middle((column - 1) as usize)
     });
     file.insert_row(line + 1, new_row);
     self.scroll(Direction::Down);
+    if add_closing_brace {
+      self.insert_row();
+      self.insert('}');
+      self.scroll(Direction::Up);
+      for _ in 0..2 {
+        self.insert(' ')
+      }
+    } else {
+      self.move_to_line_start()
+    }
     self.set_buffer();
-    self.move_to_line_start()
   }
 
   fn move_to_line_start(&mut self) {

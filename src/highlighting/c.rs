@@ -1,11 +1,10 @@
 /// TODO: C multi-line comments DO NOT WORK as of 7/13/2021
 
-use json::JsonValue;
 use crate::highlighting::{
   Lexer, Parsed, Row, Color,
-  get_color, Attribute
+  get_color, Attribute, Logos, LogosLexer,
+  JsonValue
 };
-use logos::{Logos, Lexer as LogosLexer};
 
 fn trim_function(token: &mut LogosLexer<CToken>) -> String {
   let mut string = token.slice().to_string();
@@ -15,13 +14,13 @@ fn trim_function(token: &mut LogosLexer<CToken>) -> String {
 
 #[derive(Debug, Logos, PartialEq)]
 enum CToken {
-  #[regex("\"([^\"]*)\"", priority=100)]
+  #[regex("\"([^\"]*)\"", priority = 100)]
   String,
 
-  #[regex("\'([^\']*)\'")]
+  #[regex(r"'([^']*)'")]
   Char,
 
-  #[regex(r"-?[0-9]+(\.[0-9]+)?")]
+  #[regex(r" -?[0-9]+(\.[0-9]+)?")]
   Number,
 
   #[regex(r"([a-zA-Z]+_?)*!?\(", trim_function)]
@@ -31,26 +30,28 @@ enum CToken {
   #[token("#define")]
   #[token("#ifndef")]
   #[token("#endif")]
-  #[token("if")]
-  #[token("else")]
-  #[token("while")]
-  #[token("do")]
-  #[token("for")]
-  #[token("enum")]
-  #[token("struct")]
-  #[token("break")]
-  #[token("true")]
-  #[token("false")]
-  #[token("continue")]
-  #[token("return")]
-  #[token("switch")]
-  #[token("case")]
-  #[token("const")]
+  #[token("if ")]
+  #[token("else ")]
+  #[token("while ")]
+  #[token("do ")]
+  #[token("for ")]
+  #[token("enum ")]
+  #[token("struct ")]
+  #[token("break ")]
+  #[token("true ")]
+  #[token("false ")]
+  #[token("continue ")]
+  #[token("return ")]
+  #[token("switch ")]
+  #[token("case ")]
+  #[token("const ")]
+  #[token("typedef ")]
+  #[token("union ")]
   Keyword,
 
   #[regex(r"u?int_(8|16|32|64)_t")]
-  #[regex(r"<[a-zA-Z0-9]+\.h>")]
-  #[token("char*")]
+  #[regex(r"<(([a-zA-Z0-9]|-|_)+/?)+\.h>")]
+  #[token("char *")]
   #[token("int")]
   #[token("unsigned")]
   #[token("NULL")]
@@ -59,6 +60,8 @@ enum CToken {
   #[token("long")]
   #[token("void")]
   #[token("char")]
+  #[token("[]")]
+  #[regex(r"[a-zA-Z]+_t")]
   Type,
 
   #[regex(r"//.+", priority = 100)]

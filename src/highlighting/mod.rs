@@ -3,6 +3,7 @@ mod python;
 mod c;
 
 pub use json::JsonValue;
+pub use logos::{Logos, Lexer as LogosLexer};
 pub use rust::RustLexer;
 pub use python::PythonLexer;
 pub use c::CLexer;
