@@ -7,8 +7,7 @@
 /// maybe adding a boolean to control single line right/left scrolling?
 /// better status bar (and maybe status bar rendering)
 /// - current line number out of total line numbers [DONE]
-/// - styling (different color?) [DONE]
-/// - percent of file seems stupid I do not know why ViM does it [NOT DONE, WON'T BE DONE]
+/// - styling (different color?) [DONE]/// - percent of file seems stupid I do not know why ViM does it [NOT DONE, WON'T BE DONE]
 /// more useful keybindings [IN PROGRESS?]
 /// syntax highlighting? (make python look intentionally awful) [RUST = DONE]
 
@@ -266,7 +265,10 @@ impl Editor {
       if self._quit {
         return Ok(())
       }
+      let old_view_frame = self.view_frame;
+      let old_num_rows = self.view_frame.1 - self.view_frame.0;
       self.terminal.set_dimensions();
+      self.view_frame = (old_view_frame.0, old_view_frame.1 + self.terminal.height as usize - old_num_rows);
       self.render();
       match &self.mode {
         EditorMode::Normal => self.handle_normal(),
@@ -326,6 +328,10 @@ impl Editor {
       stdout(),
       Print("~\r\n")
     ).unwrap();
+  }
+
+  fn set_buffer(&mut self) {
+    self.buffer = self.file.len().to_string().chars().count() as u16;
   }
 
   fn move_to(&mut self, column: u16, row: u16) {
@@ -465,6 +471,10 @@ impl Editor {
             self.move_to_line_end();
             self.set_mode(EditorMode::Insert);
             next_mode_not_normal = true;
+          },
+          'i' => {
+            self.set_mode(EditorMode::Insert);
+            next_mode_not_normal = true
           },
           'd' => {
             let row_no = self.position.0 as usize + self.view_frame.0;
@@ -694,7 +704,12 @@ impl Editor {
     } else {
       DPositionDescriptor::Middle(line, (column - 1) as usize)
     }) {
-      self.move_to(offset as u16 + self.buffer + 1, self.position.0 - 1)
+      if self.position.0 == 0 && column == 0 {
+        self.scroll(Direction::Up);
+        self.move_to(offset as u16 + self.buffer + 1, self.position.0)
+      } else {
+        self.move_to(offset as u16 + self.buffer + 1, self.position.0 - 1)
+      }
     } else {
       self.scroll(Direction::Left)
     }
@@ -714,6 +729,7 @@ impl Editor {
     });
     file.insert_row(line + 1, new_row);
     self.scroll(Direction::Down);
+    self.set_buffer();
     self.move_to_line_start()
   }
 

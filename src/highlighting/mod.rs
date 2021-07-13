@@ -1,9 +1,11 @@
 mod rust;
 mod python;
+mod c;
 
 pub use json::JsonValue;
 pub use rust::RustLexer;
 pub use python::PythonLexer;
+pub use c::CLexer;
 pub use crossterm::style::{Color, Attribute};
 use crate::file::Row;
 

@@ -1,3 +1,5 @@
+/// TODO: C multi-line comments DO NOT WORK as of 7/13/2021
+
 use json::JsonValue;
 use crate::highlighting::{
   Lexer, Parsed, Row, Color,
@@ -5,14 +7,14 @@ use crate::highlighting::{
 };
 use logos::{Logos, Lexer as LogosLexer};
 
-fn trim_function(token: &mut LogosLexer<RustToken>) -> String {
+fn trim_function(token: &mut LogosLexer<CToken>) -> String {
   let mut string = token.slice().to_string();
   string.pop();
   string
 }
 
 #[derive(Debug, Logos, PartialEq)]
-enum RustToken {
+enum CToken {
   #[regex("\"([^\"]*)\"", priority=100)]
   String,
 
@@ -25,51 +27,41 @@ enum RustToken {
   #[regex(r"([a-zA-Z]+_?)*!?\(", trim_function)]
   Function(String),
 
-  #[token(" as ")]
-  #[regex("\\s?fn\\s")]
-  #[regex("\\s?impl\\s")]
-  #[regex("\\s?for\\s")]
-  #[regex("\\s?in\\s")]
-  #[regex("\\s?use\\s")]
-  #[regex("\\s?mod\\s")]
-  #[regex("\\s?trait\\s")]
-  #[regex("\\s?pub\\s")]
-  #[regex("(&?|\\s?)mut\\s")]
-  #[regex("\\s?enum\\s")]
-  #[regex("\\s?let\\s")]
-  #[regex("\\s?const\\s")]
-  #[regex("\\s?true(\\s?|;)")]
-  #[regex("\\s?false(\\s?|;)")]
-  #[regex("\\s?break(\\s?|;)")]
-  #[regex("\\s?continue(\\s?|;)")]
-  #[regex("\\s?if\\s")]
-  #[regex("\\s?else\\s")]
-  #[token("struct ")]
-  #[token("macro_rules! ")]
-  #[token("match ")]
-  #[token("dyn ")]
-  #[token("loop")]
-  #[token("async")]
+  #[token("#include")]
+  #[token("#define")]
+  #[token("#ifndef")]
+  #[token("#endif")]
+  #[token("if")]
+  #[token("else")]
+  #[token("while")]
+  #[token("do")]
+  #[token("for")]
+  #[token("enum")]
+  #[token("struct")]
+  #[token("break")]
+  #[token("true")]
+  #[token("false")]
+  #[token("continue")]
   #[token("return")]
+  #[token("switch")]
+  #[token("case")]
+  #[token("const")]
   Keyword,
 
-  #[regex("(u|i)(8|16|32|64|128)")]
-  #[token("self")]
-  #[token("Self")]
-  #[token("Vec")]
-  #[token("Option")]
-  #[token("Result")]
-  #[token("Ok")]
-  #[token("Box")]
-  #[token("String")]
-  #[token("&str")]
-  #[token("None")]
-  #[token("usize")]
-  #[token("char")]
+  #[regex(r"u?int_(8|16|32|64)_t")]
+  #[regex(r"<[a-zA-Z0-9]+\.h>")]
+  #[token("char*")]
+  #[token("int")]
+  #[token("unsigned")]
+  #[token("NULL")]
   #[token("bool")]
+  #[token("short")]
+  #[token("long")]
+  #[token("void")]
+  #[token("char")]
   Type,
 
-  #[regex("//.+", priority = 100)]
+  #[regex(r"//.+", priority = 100)]
   Comment,
 
   #[regex("[ \\t\\n\\r\\f\\v]+")]
@@ -77,13 +69,13 @@ enum RustToken {
   DontCare
 }
 
-pub struct RustLexer<'a> {
+pub struct CLexer<'a> {
   _syntax: Option<json::JsonValue>,
-  _lex: Option<Vec<Vec<(RustToken, std::ops::Range<usize>)>>>,
+  _lex: Option<Vec<Vec<(CToken, std::ops::Range<usize>)>>>,
   _raw: Option<&'a Vec<Row>>
 }
 
-impl<'a> Lexer<'a> for RustLexer<'a> {
+impl<'a> Lexer<'a> for CLexer<'a> {
 
   fn highlight_off() -> Self {
     Self {
@@ -98,15 +90,15 @@ impl<'a> Lexer<'a> for RustLexer<'a> {
       let mut lex = Vec::new();
       for row in rows {
         let mut row_lex = Vec::new();
-        let lexed = RustToken::lexer(row.content()).spanned();
+        let lexed = CToken::lexer(row.content()).spanned();
         for token_range in lexed {
           match token_range.0 {
-            RustToken::Function(name) => {
-              row_lex.push((RustToken::Function(name), std::ops::Range {
+            CToken::Function(name) => {
+              row_lex.push((CToken::Function(name), std::ops::Range {
                 start: token_range.1.start,
                 end: token_range.1.end - 1
               }));
-              row_lex.push((RustToken::DontCare, std::ops::Range {
+              row_lex.push((CToken::DontCare, std::ops::Range {
                 start: token_range.1.end - 1,
                 end: token_range.1.end
               }))
@@ -152,29 +144,29 @@ impl<'a> Lexer<'a> for RustLexer<'a> {
   }
 }
 
-fn match_color(token: &RustToken, syntax_rules: &JsonValue) -> Option<Color> {
+fn match_color(token: &CToken, syntax_rules: &JsonValue) -> Option<Color> {
   let colors = &syntax_rules["colors"];
   match token {
-    RustToken::Keyword => get_color(colors["keyword"].as_str().unwrap()),
-    RustToken::Type => get_color(colors["type"].as_str().unwrap()),
-    RustToken::Char => get_color(colors["char"].as_str().unwrap()),
-    RustToken::String => get_color(colors["string"].as_str().unwrap()),
-    RustToken::Comment => get_color(colors["comment"].as_str().unwrap()),
-    RustToken::Number => get_color(colors["number"].as_str().unwrap()),
-    RustToken::Function(_)  => get_color(colors["function"].as_str().unwrap()),
+    CToken::Keyword => get_color(colors["keyword"].as_str().unwrap()),
+    CToken::Type => get_color(colors["type"].as_str().unwrap()),
+    CToken::Char => get_color(colors["char"].as_str().unwrap()),
+    CToken::String => get_color(colors["string"].as_str().unwrap()),
+    CToken::Comment => get_color(colors["comment"].as_str().unwrap()),
+    CToken::Number => get_color(colors["number"].as_str().unwrap()),
+    CToken::Function(_)  => get_color(colors["function"].as_str().unwrap()),
     _ => None
   }
 }
 
-fn get_attribute(token: &RustToken, syntax_rules: &JsonValue) -> Attribute {
+fn get_attribute(token: &CToken, syntax_rules: &JsonValue) -> Attribute {
   let token_type = match token {
-    RustToken::Keyword => "keyword",
-    RustToken::Type => "type",
-    RustToken::Char => "char",
-    RustToken::String => "string",
-    RustToken::Comment => "comment",
-    RustToken::Number => "number",
-    RustToken::Function(_)  => "function",
+    CToken::Keyword => "keyword",
+    CToken::Type => "type",
+    CToken::Char => "char",
+    CToken::String => "string",
+    CToken::Comment => "comment",
+    CToken::Number => "number",
+    CToken::Function(_)  => "function",
     _ => ""
   };
   if let Some(attribute) = &syntax_rules["style"][token_type].as_str() {

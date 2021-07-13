@@ -169,26 +169,7 @@ impl Document {
     for line in raw_content.lines() {
       rows.push(Row::from(line));
     }
-    let path = home_dir().unwrap().join(if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
-      match *extension {
-        "rs" => ".editrc/syntax/rust.json",
-        "py" => ".editrc/syntax/python.json",
-        _ => ""
-      }
-    } else { "" });
-    let syntax_file = if let Ok(file_contents) = read_to_string(path) {
-      if let Ok(result) = json::parse(&file_contents) {
-        if !result["highlight"].as_bool().unwrap() {
-          None
-        } else {
-          Some(result)
-        }
-      } else {
-        None
-      }
-    } else {
-      None
-    };
+    let syntax_file = Self::load_syntax_file(&file_name);
     let highlighted_rows = highlight(&file_name, &rows, &syntax_file);
     Ok(Self {
       file_name,
@@ -202,14 +183,28 @@ impl Document {
     let file_name = String::from(file_name);
     let mut rows = Vec::new();
     rows.push(Row::from(""));
-    let path = home_dir().unwrap().join(if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
-      match *extension {
-        "rs" => ".editrc/syntax/rust.json",
-        "py" => ".editrc/syntax/python.json",
-        _ => ""
-      }
-    } else { "" });
-    let syntax_file = if let Ok(file_contents) = read_to_string(path) {
+    let syntax_file = Self::load_syntax_file(&file_name);
+    let highlighted_rows = highlight(&file_name, &rows, &syntax_file);
+    Self {
+      file_name,
+      rows,
+      syntax_file,
+      highlighted_rows,
+    }
+  }
+
+  fn load_syntax_file(file_name: &String) -> Option<JsonValue> {
+    if let Ok(file_contents) = read_to_string(
+      home_dir()
+      .unwrap()
+      .join(if let Some(extension) = file_name.split('.').collect::<Vec<&str>>().last() {
+        match *extension {
+          "rs" => ".editrc/syntax/rust.json",
+          "py" => ".editrc/syntax/python.json",
+          "c" | "cc" => ".editrc/syntax/c.json",
+          _ => ""
+        }
+      } else { "" })) {
       if let Ok(result) = json::parse(&file_contents) {
         if !result["highlight"].as_bool().unwrap() {
           None
@@ -221,14 +216,11 @@ impl Document {
       }
     } else {
       None
-    };
-    let highlighted_rows = highlight(&file_name, &rows, &syntax_file);
-    Self {
-      file_name,
-      rows,
-      syntax_file,
-      highlighted_rows,
     }
+  }
+
+  pub fn load_syntax(&mut self) {
+    self.syntax_file = Self::load_syntax_file(&self.file_name)
   }
 
   pub fn name(&self) -> &str {
@@ -240,7 +232,8 @@ impl Document {
   }
 
   pub fn set_name(&mut self, name: &str) {
-    self.file_name = String::from(name)
+    self.file_name = String::from(name);
+    self.load_syntax()
   }
 
   pub fn get_row(&self, index: usize) -> Option<&Row> {
@@ -335,6 +328,7 @@ pub fn highlight(file_name: &str, rows: &Vec<Row>, syntax_file: &Option<JsonValu
     match *extension {
       "rs" => RustLexer::lex(&rows, syntax_file.as_ref()).parse(),
       "py" => PythonLexer::lex(&rows, syntax_file.as_ref()).parse(),
+      "c" => CLexer::lex(&rows, syntax_file.as_ref()).parse(),
       _ => None
     }
   } else { None }

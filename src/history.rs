@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::ops::Range;
 use std::collections::VecDeque;
 use crate::file::{
@@ -43,6 +41,7 @@ impl<'a> History {
     }
   }
 
+  #[allow(dead_code)]
   pub fn with_capacity(maximum_size: usize) -> Self {
     Self {
       history: VecDeque::new(),
@@ -50,6 +49,7 @@ impl<'a> History {
     }
   }
 
+  #[allow(dead_code)]
   pub fn capacity(&self) -> usize {
     self.maximum_size
   }

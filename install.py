@@ -14,9 +14,15 @@ HOME = os.path.expanduser("~")
 
 if __name__ == '__main__':
   if 'linux' in PLATFORM:
-    subprocess.call(["cargo", "install", "--path", "."])
+    try:
+      subprocess.run(["cargo", "install", "--path", "."]).check_returncode()
+    except subprocess.CalledProcessError as error:
+      print(error, file=sys.stderr)
     try:
       os.mkdir(os.path.join(HOME, ".editrc"))
     except OSError as error:
-      pass
+      if isinstance(error, FileExistsError):
+        pass
+      else:
+        pass
     shutil.copytree("syntax", os.path.join(HOME, ".editrc/syntax"), dirs_exist_ok=True)
