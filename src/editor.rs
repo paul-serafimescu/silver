@@ -1,16 +1,3 @@
-/// TODO:
-/// fix the usize vs u16 stuff **urgent**
-/// searching
-/// undo [DONE]
-/// INSERT mode [DONE (i think)]
-/// find alternative to truncation on overflowing lines (no, it's not OK to assume I use good practice)
-/// maybe adding a boolean to control single line right/left scrolling?
-/// better status bar (and maybe status bar rendering)
-/// - current line number out of total line numbers [DONE]
-/// - styling (different color?) [DONE]/// - percent of file seems stupid I do not know why ViM does it [NOT DONE, WON'T BE DONE]
-/// more useful keybindings [IN PROGRESS?]
-/// syntax highlighting? (make python look intentionally awful) [RUST = DONE]
-
 use std::io::{stdout, Write};
 use std::panic;
 use crossterm::{
@@ -721,6 +708,17 @@ impl Editor {
     let column = self.position.1 - self.buffer - 1;
     let file = self.get_file_mut();
     let row = file.get_row_mut(line).unwrap();
+    let offset = {
+      let mut counter: usize = 0;
+      for character in row.content().chars() {
+        if character.is_whitespace() {
+          counter += 1
+        } else {
+          break
+        }
+      }
+      counter / 2 * 2
+    };
     let mut add_closing_brace = false;
     if let Some(last_key) = row.content().trim_end().chars().last() {
       add_closing_brace = last_key == '{';
@@ -736,9 +734,12 @@ impl Editor {
     self.scroll(Direction::Down);
     if add_closing_brace {
       self.insert_row();
+      for _ in 0..offset {
+        self.insert(' ')
+      }
       self.insert('}');
       self.scroll(Direction::Up);
-      for _ in 0..2 {
+      for _ in 0..(offset + 2) {
         self.insert(' ')
       }
     } else {

@@ -1,5 +1,3 @@
-/// TODO: C multi-line comments DO NOT WORK as of 7/13/2021
-
 use crate::highlighting::{
   Lexer, Parsed, Row, Color,
   get_color, Attribute, Logos, LogosLexer,
@@ -37,16 +35,17 @@ enum CToken {
   #[token("for ")]
   #[token("enum ")]
   #[token("struct ")]
-  #[token("break ")]
+  #[token("break")]
   #[token("true ")]
   #[token("false ")]
-  #[token("continue ")]
-  #[token("return ")]
-  #[token("switch ")]
-  #[token("case ")]
-  #[token("const ")]
-  #[token("typedef ")]
-  #[token("union ")]
+  #[token("continue")]
+  #[token("return")]
+  #[token("switch")]
+  #[token("case")]
+  #[token("const")]
+  #[token("typedef")]
+  #[token("union")]
+  #[token("default")]
   Keyword,
 
   #[regex(r"u?int_(8|16|32|64)_t")]
@@ -66,6 +65,12 @@ enum CToken {
 
   #[regex(r"//.+", priority = 100)]
   Comment,
+
+  #[token("/*")]
+  MultiLineCommentStart,
+
+  #[token("*/")]
+  MultiLineCommentEnd,
 
   #[regex("[ \\t\\n\\r\\f\\v]+")]
   #[error]
@@ -91,12 +96,25 @@ impl<'a> Lexer<'a> for CLexer<'a> {
   fn lex(rows: &'a Vec<Row>, syntax_file: Option<&JsonValue>) -> Self {
     if let Some(syntax) = syntax_file {
       let mut lex = Vec::new();
+      let mut multiline_flag = false;
       for row in rows {
         let mut row_lex = Vec::new();
         let lexed = CToken::lexer(row.content()).spanned();
         for token_range in lexed {
           match token_range.0 {
+            CToken::MultiLineCommentStart => {
+              multiline_flag = true;
+              row_lex.push(token_range)
+            },
+            CToken::MultiLineCommentEnd => {
+              multiline_flag = false;
+              row_lex.push(token_range)
+            }
             CToken::Function(name) => {
+              if multiline_flag {
+                row_lex.push((CToken::Comment, token_range.1));
+                continue
+              }
               row_lex.push((CToken::Function(name), std::ops::Range {
                 start: token_range.1.start,
                 end: token_range.1.end - 1
@@ -106,7 +124,13 @@ impl<'a> Lexer<'a> for CLexer<'a> {
                 end: token_range.1.end
               }))
             },
-            _ => row_lex.push(token_range)
+            _ => {
+              if multiline_flag {
+                row_lex.push((CToken::Comment, token_range.1));
+                continue
+              }
+              row_lex.push(token_range)
+            }
           }
         }
         lex.push(row_lex)
@@ -154,7 +178,9 @@ fn match_color(token: &CToken, syntax_rules: &JsonValue) -> Option<Color> {
     CToken::Type => get_color(colors["type"].as_str().unwrap()),
     CToken::Char => get_color(colors["char"].as_str().unwrap()),
     CToken::String => get_color(colors["string"].as_str().unwrap()),
-    CToken::Comment => get_color(colors["comment"].as_str().unwrap()),
+    CToken::Comment |
+    CToken::MultiLineCommentStart |
+    CToken::MultiLineCommentEnd => get_color(colors["comment"].as_str().unwrap()),
     CToken::Number => get_color(colors["number"].as_str().unwrap()),
     CToken::Function(_)  => get_color(colors["function"].as_str().unwrap()),
     _ => None
@@ -167,7 +193,9 @@ fn get_attribute(token: &CToken, syntax_rules: &JsonValue) -> Attribute {
     CToken::Type => "type",
     CToken::Char => "char",
     CToken::String => "string",
-    CToken::Comment => "comment",
+    CToken::Comment |
+    CToken::MultiLineCommentStart |
+    CToken::MultiLineCommentEnd => "comment",
     CToken::Number => "number",
     CToken::Function(_)  => "function",
     _ => ""
