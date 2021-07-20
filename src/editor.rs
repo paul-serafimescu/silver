@@ -263,7 +263,7 @@ impl Editor {
         EditorMode::Insert => self.handle_insert(),
         EditorMode::Search => self.handle_search()
       }
-      std::thread::sleep(std::time::Duration::from_millis(1));
+      // std::thread::sleep(std::time::Duration::from_millis(1));
     }
   }
 
@@ -464,9 +464,14 @@ impl Editor {
             next_mode_not_normal = true
           },
           'd' => {
-            let row_no = self.position.0 as usize + self.view_frame.0;
-            self.history.push(HistoryNode::create(&self.file.rows[row_no..(row_no + 1)], row_no..(row_no + 1)));
-            self.file.clear_row(row_no);
+            let num_lines = numeric_modifer(&mut commands);
+            for _ in 0..num_lines {
+              let row_no = self.position.0 as usize + self.view_frame.0;
+              self.history.push(HistoryNode::create(&self.file.rows[row_no..(row_no + 1)], row_no..(row_no + 1)));
+              self.file.clear_row(row_no);
+              self.move_to_line_beginning();
+              self.scroll(Direction::Down)
+            }
             self.move_to_line_beginning()
           },
           'g' => self.move_to_beginning(),

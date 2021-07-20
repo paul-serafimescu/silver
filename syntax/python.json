@@ -1,3 +1,16 @@
 {
-  "highlight": true
+  "highlight": true,
+  "colors": {
+    "keyword": "purple",
+    "string": "green",
+    "number": "yellow",
+    "function": "blue",
+    "type": "yellow",
+    "char": "orange",
+    "comment": "grey",
+    "constant": "orange"
+  },
+  "style": {
+    "function": "bold"
+  }
 }
