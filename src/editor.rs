@@ -263,7 +263,7 @@ impl Editor {
         EditorMode::Insert => self.handle_insert(),
         EditorMode::Search => self.handle_search()
       }
-      // std::thread::sleep(std::time::Duration::from_millis(1));
+      std::thread::sleep(std::time::Duration::from_micros(500));
     }
   }
 

@@ -42,6 +42,10 @@ enum PythonToken {
   #[token("as ")]
   #[token("def ")]
   #[token("raise ")]
+  #[token("async")]
+  #[token("await")]
+  #[token("in ")]
+  #[token("with ")]
   Keyword,
 
   #[token("dict")]
@@ -53,6 +57,7 @@ enum PythonToken {
   #[token("None")]
   #[token("bool")]
   #[token("bytes")]
+  #[token("self")]
   Type,
 
   #[regex(r"#.+", priority = 100)]
