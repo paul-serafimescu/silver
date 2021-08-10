@@ -103,7 +103,7 @@ impl Terminal {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EditorMode {
   Normal,
   Command,
@@ -194,6 +194,7 @@ pub struct Editor {
   pub status_bar: StatusBar,
   pub history: History,
   pub search_results: Option<std::vec::IntoIter<(usize, usize)>>,
+  _old_position: (u16, u16),
   altered: bool,
   view_frame: (usize, usize),
   _quit: bool,
@@ -236,7 +237,8 @@ impl Editor {
       history: History::new(),
       search_results: None,
       _search_current: 0,
-      _search_total: 0
+      _search_total: 0,
+      _old_position: position()?,
     })
   }
 
@@ -263,7 +265,7 @@ impl Editor {
         EditorMode::Insert => self.handle_insert(),
         EditorMode::Search => self.handle_search()
       }
-      std::thread::sleep(std::time::Duration::from_micros(500));
+      std::thread::sleep(std::time::Duration::from_millis(1));
     }
   }
 
@@ -278,7 +280,7 @@ impl Editor {
     ).unwrap();
     if let Some(highlighted_rows) = self.file.highlighted_rows() {
       for token in highlighted_rows.get(row_no - 1).unwrap() {
-        current_written += token.get_original().len(); // temporary
+        current_written += token.get_original().chars().count(); // temporary
         if current_written > (self.terminal.width - self.buffer - 1) as usize { // temporary
           break
         }
@@ -407,7 +409,7 @@ impl Editor {
         if let Some(search_results) = &mut self.search_results {
           if let Some((row_idx, row_offset)) = search_results.next() {
             self._search_current += 1;
-            self.goto_line(row_idx as u16 + 1);
+            self.goto_line(row_idx + 1);
             self.move_to(row_offset as u16 + self.buffer + 1, self.position.0)
           } else {
             self.set_mode(EditorMode::Normal)
@@ -432,7 +434,7 @@ impl Editor {
           ":set" => (),
           "line" => {
             if let Some(line_no) = split_command.get(idx + 1) {
-              if let Ok(line_no) = line_no.parse::<u16>() {
+              if let Ok(line_no) = line_no.parse::<usize>() {
                 self.goto_line(line_no);
               }
             }
@@ -458,6 +460,16 @@ impl Editor {
             self.move_to_line_end();
             self.set_mode(EditorMode::Insert);
             next_mode_not_normal = true;
+          },
+          'w' => {
+            for _ in 0..numeric_modifer(&mut commands) {
+              self.move_to_next_word()
+            }
+          },
+          'b' => {
+            for _ in 0..numeric_modifer(&mut commands) {
+              self.move_to_prev_word()
+            }
           },
           'i' => {
             self.set_mode(EditorMode::Insert);
@@ -492,7 +504,7 @@ impl Editor {
               self.search(arg);
               if let Some(result_iter) = &mut self.search_results {
                 if let Some((row_no, row_offset)) = result_iter.next() {
-                  self.goto_line(row_no as u16 + 1);
+                  self.goto_line(row_no + 1);
                   self.move_to(row_offset as u16 + self.buffer + 1, self.position.0)
                 } else {
                   self.set_mode(EditorMode::Normal);
@@ -524,9 +536,9 @@ impl Editor {
     self.mode = mode;
   }
 
-  fn goto_line(&mut self, line_no: u16) {
+  fn goto_line(&mut self, line_no: usize) {
     if line_no as usize <= self.file.len() {
-      let difference = line_no as i32 - self.position.0 as i32 - self.view_frame.0 as i32;
+      let difference = line_no as i64 - self.position.0 as i64 - self.view_frame.0 as i64;
       if difference <= 0 {
         for _ in 0..(difference.abs() + 1) {
           self.scroll(Direction::Up)
@@ -635,6 +647,38 @@ impl Editor {
     for _ in 0..self.file.len() {
       self.scroll(Direction::Up)
     }
+  }
+
+  fn move_to_next_word(&mut self) {
+    let row = self.file.get_row(self.position.0 as usize + self.view_frame.0).unwrap();
+    let mut slice = row.content()[(self.position.1 - self.buffer - 1) as usize..].chars().enumerate();
+    while let Some((_, character)) = slice.next() {
+      if character.is_whitespace() || character.is_ascii_punctuation() {
+        while let Some((index, character)) = slice.next() {
+          if !(character.is_whitespace() || character.is_ascii_punctuation()) {
+            self.move_to(self.position.1 + index as u16, self.position.0);
+            return
+          }
+        }
+      }
+    }
+    self.move_to(self.buffer + 1, self.position.0 + 1)
+  }
+
+  fn move_to_prev_word(&mut self) {
+    let row = self.file.get_row(self.position.0 as usize + self.view_frame.0).unwrap();
+    let mut slice = row.content()[0..(self.position.1 - self.buffer) as usize].chars().rev().enumerate();
+    while let Some((_, character)) = slice.next() {
+      if character.is_whitespace() || character.is_ascii_punctuation() {
+        while let Some((index, character)) = slice.next() {
+          if !(character.is_whitespace() || character.is_ascii_punctuation()) {
+            self.move_to(self.position.1 - index as u16, self.position.0);
+            return
+          }
+        }
+      }
+    }
+    self.move_to(self.buffer + 1, self.position.0 + 1)
   }
 
   fn move_to_end(&mut self) {
@@ -765,7 +809,7 @@ impl Editor {
       for row_no in range {
         self.file.replace(row_no, altered_rows.pop().unwrap())
       }
-      self.goto_line(rest_cursor as u16);
+      self.goto_line(rest_cursor);
       self.move_to_line_end()
     }
   }
@@ -790,7 +834,9 @@ impl Editor {
     let num_rows = self.file.rows.len();
     let buffer = num_rows.to_string().chars().count();
     self.buffer = buffer as u16;
-    self.file.highlight();
+    if self.mode != EditorMode::Command {
+      self.file.highlight();
+    }
     for terminal_row_no in self.view_frame.0..(self.view_frame.1 - 1) {
       if terminal_row_no < num_rows {
         self.clear_row();
@@ -824,7 +870,6 @@ impl Editor {
 
 impl Drop for Editor {
   fn drop(&mut self) {
-    let _ = disable_raw_mode();
     let _ = self.terminal.clear();
     if self.altered && self._quit {
       if let Err(why) = self.file.save() {
@@ -835,7 +880,11 @@ impl Drop for Editor {
       stdout(),
       ResetColor,
       LeaveAlternateScreen,
+      ResetColor,
+      SetCursorShape(CursorShape::Block),
+      EnableBlinking
     );
+    let _ = disable_raw_mode();
     // println!("{:?}", self.file.highlighted_rows())
     // println!("{:?}", self.file)
     // println!("row {} column {}", self.position.0, self.position.1);

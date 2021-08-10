@@ -19,7 +19,7 @@ enum PythonToken {
   #[regex(r" -?[0-9]+(\.[0-9]+)?")]
   Number,
 
-  #[regex(r"([a-zA-Z]+_?)*!?\(", priority = 98, callback = trim_function)]
+  #[regex(r"([a-zA-Z]+_?)*\(", priority = 98, callback = trim_function)]
   Function(String),
 
   #[token("import")]
@@ -45,9 +45,14 @@ enum PythonToken {
   #[token("async")]
   #[token("await")]
   #[token("in ")]
+  #[token("or ")]
   #[token("with ")]
+  #[token("not")]
+  #[token("and")]
+  #[token("assert")]
   Keyword,
 
+  #[regex(r"@([a-zA-Z0-9]+_?)*")]
   #[token("dict")]
   #[token("list")]
   #[token("set")]

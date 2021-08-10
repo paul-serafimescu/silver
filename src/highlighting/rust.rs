@@ -26,7 +26,7 @@ enum RustToken {
 
   #[token(" as ")]
   #[regex("\\s?fn\\s")]
-  #[regex("\\s?impl\\s")]
+  #[regex("impl")]
   #[regex("\\s?for\\s")]
   #[regex("\\s?in\\s")]
   #[regex("\\s?use\\s")]
