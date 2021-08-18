@@ -1,5 +1,5 @@
 [package]
-name = "editor"
+name = "silver"
 version = "0.1.0"
 authors = ["PaulSera1 <paulserafimescu@gmail.com>"]
 edition = "2018"
